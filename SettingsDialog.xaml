@@ -1,0 +1,114 @@
+<Window x:Class="YorteImpact.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="470" SizeToContent="Height"
+        Icon="pack://application:,,,/favicon.ico"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="#080A11" Foreground="#E6EEF6">
+  <Window.Resources>
+    <SolidColorBrush x:Key="CardBg" Color="#151F2E"/>
+    <SolidColorBrush x:Key="CardBorder" Color="#26364A"/>
+    <SolidColorBrush x:Key="Accent" Color="#2E9BFF"/>
+    <SolidColorBrush x:Key="Muted" Color="#8EA0B4"/>
+
+    <DrawingBrush x:Key="Checker" TileMode="Tile"
+                  Viewport="0,0,10,10" ViewportUnits="Absolute" Stretch="None">
+      <DrawingBrush.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FFFFFF" Geometry="M0,0 H5 V5 H0 Z M5,5 H10 V10 H5 Z"/>
+          <GeometryDrawing Brush="#C9C9C9" Geometry="M5,0 H10 V5 H5 Z M0,5 H5 V10 H0 Z"/>
+        </DrawingGroup>
+      </DrawingBrush.Drawing>
+    </DrawingBrush>
+
+    <Style x:Key="BgTile" TargetType="RadioButton">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,12,0"/>
+      <Setter Property="Foreground" Value="#E6EEF6"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Bd" Padding="14,10" CornerRadius="5"
+                    Background="{StaticResource CardBg}"
+                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1">
+              <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#3E5A7A"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#17304F"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="26,22,26,20">
+    <!-- header -->
+    <StackPanel Orientation="Horizontal">
+      <Border Width="38" Height="38" CornerRadius="5" Background="{StaticResource Accent}"
+              VerticalAlignment="Center">
+        <Path Data="M12,8.5 A3.5,3.5 0 1,1 11.99,8.5 M12,2 V4.5 M12,19.5 V22 M2,12 H4.5 M19.5,12 H22 M4.9,4.9 L6.7,6.7 M17.3,17.3 L19.1,19.1 M19.1,4.9 L17.3,6.7 M6.7,17.3 L4.9,19.1"
+              Stroke="White" StrokeThickness="1.6" Fill="Transparent"
+              Width="18" Height="18" Stretch="Uniform"/>
+      </Border>
+      <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+        <TextBlock Text="Settings" FontWeight="Bold" FontSize="18"/>
+        <TextBlock Text="Defaults for a new session" FontSize="11"
+                   Foreground="{StaticResource Muted}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <Border Height="1" Background="#1A2636" Margin="0,18,0,16"/>
+
+    <TextBlock Text="DEFAULT NEW CANVAS" Foreground="{StaticResource Muted}" FontSize="10"
+               FontWeight="SemiBold" Margin="2,0,0,6"/>
+    <TextBlock Text="YorteImpact opens straight to this canvas. New… still asks for a size."
+               Foreground="{StaticResource Muted}" FontSize="11" Margin="2,0,0,10"/>
+
+    <StackPanel Orientation="Horizontal">
+      <TextBox x:Name="WidthBox" Text="2000" Width="120" FontSize="15"
+               TextAlignment="Center" Background="#111A27" Foreground="White"
+               BorderBrush="#1A2636" Padding="10,8"/>
+      <TextBlock Text="×" VerticalAlignment="Center"
+                 FontSize="15" Foreground="{StaticResource Muted}" Margin="10,0"/>
+      <TextBox x:Name="HeightBox" Text="2000" Width="120" FontSize="15"
+               TextAlignment="Center" Background="#111A27" Foreground="White"
+               BorderBrush="#1A2636" Padding="10,8"/>
+    </StackPanel>
+
+    <TextBlock Text="BACKGROUND" Foreground="{StaticResource Muted}" FontSize="10"
+               FontWeight="SemiBold" Margin="2,18,0,8"/>
+    <StackPanel Orientation="Horizontal">
+      <RadioButton x:Name="BgWhite" GroupName="Bg" Style="{StaticResource BgTile}">
+        <StackPanel Orientation="Horizontal">
+          <Border Width="34" Height="24" CornerRadius="2" Background="White"
+                  BorderBrush="#223248" BorderThickness="1"/>
+          <TextBlock Text="White" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
+        </StackPanel>
+      </RadioButton>
+      <RadioButton x:Name="BgTransparent" GroupName="Bg" Style="{StaticResource BgTile}">
+        <StackPanel Orientation="Horizontal">
+          <Border Width="34" Height="24" CornerRadius="2" Background="{StaticResource Checker}"
+                  BorderBrush="#223248" BorderThickness="1"/>
+          <TextBlock Text="Transparent" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
+        </StackPanel>
+      </RadioButton>
+    </StackPanel>
+
+    <TextBlock x:Name="ErrorText" Foreground="#FF7B7B" Margin="2,12,0,0" Visibility="Collapsed"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+      <Button Content="Cancel" Width="96" Padding="0,8" Margin="0,0,10,0"
+              Background="#223248" Foreground="White" BorderBrush="Transparent"
+              Cursor="Hand" IsCancel="True" Click="Cancel_Click"/>
+      <Button Content="Save" Width="112" Padding="0,8" IsDefault="True"
+              Background="{StaticResource Accent}" Foreground="White" BorderBrush="Transparent"
+              Cursor="Hand" Click="Save_Click"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

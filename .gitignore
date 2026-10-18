@@ -1,0 +1,52 @@
+# Build outputs
+bin/
+obj/
+publish/
+artifacts/
+*.dll
+*.pdb
+*.exe
+*.nupkg
+*.snupkg
+*.wpftmp.csproj
+*_wpftmp.csproj
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Test / coverage
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# NuGet
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Logs / crash dumps
+*.log
+*.tmp
+*.bak
+*.dmp
+*.stackdump
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Local reference material and design artifacts
+*.pdf
+/* PDF/
+theme-preview.html
