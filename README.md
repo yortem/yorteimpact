@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="cover.webp" alt="YorteImpact" width="100%"/>
+</p>
+
 # YorteImpact
 
 A fast desktop tool for prototyping page layouts: place shapes, images and
