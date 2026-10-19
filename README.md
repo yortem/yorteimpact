@@ -50,6 +50,8 @@ between launches.
 ### Tabs
 
 Every project or canvas opens in its own rounded tab in the window title bar.
+Drag the title bar to move the window and double-click it to maximize or
+restore, like a standard window.
 The **+** button (`Ctrl+T`) adds a blank canvas tab; the **×** on a tab
 (`Ctrl+W`) closes that tab; if the tab has unsaved changes you are asked to
 save, discard or cancel. Closing the window asks the same for every unsaved
@@ -313,6 +315,11 @@ saved as editable elements in `.yimpact`.
   sit on the grid.
 - **Delete**, arrow keys and the canvas-align buttons apply to the whole
   selection.
+- Select two or more objects and right-click → **Merge** to combine them into
+  a single group. Children keep their own type (text, shape, image) and render
+  unchanged, but are moved, selected and reordered together as one unit.
+  The merged group can be duplicated, resized, rotated, exported and saved/loaded
+  like any other object. Ctrl+F on a group recolors all shapes inside it.
 - Rotate with the slider or the 90° buttons.
 - Arrow keys nudge by 1px (Shift = 10px).
 

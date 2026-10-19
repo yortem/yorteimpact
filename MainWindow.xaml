@@ -94,6 +94,35 @@
       </Border>
     </DataTemplate>
 
+    <DataTemplate DataType="{x:Type models:GroupElement}">
+      <Border Width="{Binding Width}" Height="{Binding Height}"
+              Background="Transparent"
+              Opacity="{Binding OpacityFactor}"
+              OpacityMask="{Binding OpacityMaskBrush}"
+              Effect="{Binding ShadowEffect}"
+              RenderTransformOrigin="0.5,0.5">
+        <Border.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform ScaleX="{Binding FlipScaleX}" ScaleY="{Binding FlipScaleY}"/>
+            <RotateTransform Angle="{Binding RotationAngle}"/>
+          </TransformGroup>
+        </Border.RenderTransform>
+        <ItemsControl ItemsSource="{Binding Children}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <Canvas/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemContainerStyle>
+            <Style TargetType="ContentPresenter">
+              <Setter Property="Canvas.Left" Value="{Binding X}"/>
+              <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+            </Style>
+          </ItemsControl.ItemContainerStyle>
+        </ItemsControl>
+      </Border>
+    </DataTemplate>
+
     <DataTemplate DataType="{x:Type models:PaintLayerElement}">
       <Image Width="{Binding Width}" Height="{Binding Height}"
              Source="{Binding Source}" Stretch="Fill"
@@ -1062,7 +1091,9 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,10,0">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,10,0"
+                    MouseLeftButtonDown="TitleBarDrag_MouseLeftButtonDown"
+                    WindowChrome.IsHitTestVisibleInChrome="True">
           <TextBlock VerticalAlignment="Center" FontFamily="Segoe UI" FontWeight="Black" FontSize="17"
                      TextOptions.TextFormattingMode="Ideal"
                      TextOptions.TextRenderingMode="Grayscale">
@@ -2750,6 +2781,13 @@
               </MenuItem.Icon>
             </MenuItem>
             <Separator x:Name="ElementMenuSeparator" Visibility="Collapsed"/>
+            <MenuItem x:Name="MergeMenuItem" Header="Merge" Click="Merge_Click" Visibility="Collapsed">
+              <MenuItem.Icon>
+                <Path Data="M3,3 H21 V21 H3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+            </MenuItem>
             <MenuItem x:Name="CopyStyleMenuItem" Header="Copy style"
                       Click="CopyStyle_Click" Visibility="Collapsed">
               <MenuItem.Icon>

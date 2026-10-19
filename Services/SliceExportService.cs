@@ -184,6 +184,24 @@ public static class SliceExportService
                     RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
                 };
                 break;
+            case GroupElement group:
+                var groupCanvas = new System.Windows.Controls.Canvas
+                {
+                    Width = group.Width,
+                    Height = group.Height,
+                };
+                foreach (var child in group.Children)
+                    groupCanvas.Children.Add(BuildElementVisual(child, false));
+                border = new Border
+                {
+                    Width = group.Width, Height = group.Height,
+                    Child = groupCanvas,
+                    Opacity = el.OpacityFactor,
+                    OpacityMask = el.OpacityMaskBrush,
+                    Effect = el.ShadowEffect,
+                    RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+                };
+                break;
             default:
                 throw new NotSupportedException("Unsupported element type for slice copy.");
         }

@@ -837,6 +837,17 @@ public partial class MainWindow : Window
     private void WindowMaximizeRestore_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
+    private void TitleBarDrag_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            WindowMaximizeRestore_Click(sender, e);
+            return;
+        }
+        if (e.OriginalSource is Button) return;
+        try { DragMove(); } catch { }
+    }
+
     private void WindowClose_Click(object sender, RoutedEventArgs e) => Close();
 
     private void UpdateMaxRestoreGlyph()
@@ -1236,7 +1247,7 @@ public partial class MainWindow : Window
     private void Pasteboard_ContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
         var hit = PickTopmost(Mouse.GetPosition(Pasteboard));
-        if (hit != null && !ReferenceEquals(_doc.Selected, hit)) _doc.Select(hit);
+        if (hit != null && !_doc.SelectedElements.Contains(hit)) _doc.Select(hit);
 
         bool onObject = hit != null;
         var objectVisibility = onObject ? Visibility.Visible : Visibility.Collapsed;
@@ -1244,6 +1255,7 @@ public partial class MainWindow : Window
 
         SaveElementTransparentMenuItem.Visibility = objectVisibility;
         ElementMenuSeparator.Visibility = objectVisibility;
+        MergeMenuItem.Visibility = _doc.SelectionCount >= 2 ? Visibility.Visible : Visibility.Collapsed;
         CopyStyleMenuItem.Visibility = objectVisibility;
         PasteStyleMenuItem.Visibility = objectVisibility;
         PasteStyleMenuItem.IsEnabled = _styleClipboard != null;
@@ -1281,6 +1293,41 @@ public partial class MainWindow : Window
         RefreshTextToolbar();
         RefreshPhotoPanel();
         StatusText.Text = "Style pasted.";
+    }
+
+    private void Merge_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = _doc.SelectedElements.ToList();
+        if (selected.Count < 2) return;
+
+        PushUndo();
+
+        double minX = selected.Min(el => el.X);
+        double minY = selected.Min(el => el.Y);
+        double maxX = selected.Max(el => el.X + el.Width);
+        double maxY = selected.Max(el => el.Y + el.Height);
+
+        var group = new GroupElement
+        {
+            X = minX,
+            Y = minY,
+            Width = maxX - minX,
+            Height = maxY - minY,
+        };
+        group.CaptureOriginalSize();
+
+        foreach (var el in selected)
+        {
+            el.X -= minX;
+            el.Y -= minY;
+            group.Children.Add(el);
+        }
+
+        foreach (var el in selected)
+            _doc.Elements.Remove(el);
+
+        _doc.Add(group);
+        StatusText.Text = $"Merged {selected.Count} objects into a group.";
     }
 
     private void RebuildProjectImageMenu()
@@ -1650,7 +1697,7 @@ public partial class MainWindow : Window
         else
         {
             var hits = _doc.Elements
-                .Where(e => !e.IsBackgroundLayer && rect.IntersectsWith(e.Bounds))
+                .Where(e => !e.IsBackgroundLayer && rect.Contains(e.Bounds))
                 .ToList();
             if (_marqueeAdditive)
             {
@@ -2052,6 +2099,7 @@ public partial class MainWindow : Window
         _origX = el.X; _origY = el.Y; _origW = el.Width; _origH = el.Height;
         _origFontSize = el is TextElement t ? t.FontSize : 0;
         _origCenter = el.Center;
+        if (el is GroupElement ge) ge.CaptureOriginalSize();
         Pasteboard.CaptureMouse();
     }
 
@@ -2604,8 +2652,9 @@ public partial class MainWindow : Window
                     var el = FindElementDataContext(d);
                     if (el != null && !el.IsBackgroundLayer && el.ZIndex >= bestZ)
                     {
-                        bestZ = el.ZIndex;
-                        found = el;
+                        var selectable = _doc.GetSelectableElement(el);
+                        bestZ = selectable.ZIndex;
+                        found = selectable;
                     }
                 }
                 return HitTestResultBehavior.Continue;
@@ -6886,6 +6935,24 @@ public partial class MainWindow : Window
     /// <summary>Ctrl+F: pick a shape fill, text color, or image color.</summary>
     private void PickElementFill()
     {
+        if (_doc.Selected is GroupElement group)
+        {
+            var shapes = group.Children.OfType<ShapeElement>().ToList();
+            if (shapes.Count == 0)
+            {
+                StatusText.Text = "Ctrl+F changes the fill of a shape or the color of text.";
+                return;
+            }
+            var dlgGroup = new ColorPickerDialog(shapes[0].FillColor1, CanvasColorsWithPrimary()) { Owner = this };
+            if (dlgGroup.ShowDialog() != true) return;
+            PushUndo();
+            foreach (var gShape in shapes) gShape.FillColor1 = dlgGroup.SelectedColor;
+            RefreshInspector();
+            RefreshShapeToolbar();
+            StatusText.Text = $"Group fill set to {ToHex(dlgGroup.SelectedColor)}.";
+            return;
+        }
+
         if (_doc.Selected is TextElement te)
         {
             var dlg = new ColorPickerDialog(te.TextColor1, CanvasColorsWithPrimary()) { Owner = this };

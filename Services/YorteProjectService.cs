@@ -44,7 +44,8 @@ public static class YorteProjectService
     public sealed class ElementDto
     {
         public string? Id { get; set; } // stable across undo snapshots (not just files)
-        public string Kind { get; set; } = "shape"; // "shape" | "image" | "text" | "paint"
+        public string Kind { get; set; } = "shape"; // "shape" | "image" | "text" | "paint" | "group"
+        public List<ElementDto>? Children { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
         public double Width { get; set; }
@@ -230,6 +231,10 @@ public static class YorteProjectService
                 dto.LetterSpacing = t.LetterSpacing; dto.LineSpacing = t.LineSpacing;
                 dto.WrapWidth = t.WrapWidth;
                 break;
+            case GroupElement g:
+                dto.Kind = "group";
+                dto.Children = g.Children.Select(c => ToDto(c)).ToList();
+                break;
         }
         return dto;
     }
@@ -295,12 +300,14 @@ public static class YorteProjectService
                     LineSpacing = dto.LineSpacing > 0 ? dto.LineSpacing : 120,
                     WrapWidth = dto.WrapWidth,
                 },
+                "group" => LoadGroup(dto),
                 _ => null,
             };
             if (el == null) continue;
             if (Guid.TryParse(dto.Id, out var gid)) el.Id = gid; // keep identity for undo selection
             el.X = dto.X; el.Y = dto.Y;
             el.Width = Math.Max(1, dto.Width); el.Height = Math.Max(1, dto.Height);
+            if (el is GroupElement loadedGroup) loadedGroup.CaptureOriginalSize();
             el.RotationAngle = dto.Rotation; el.FlipHorizontal = dto.FlipH; el.FlipVertical = dto.FlipV;
             el.ZIndex = dto.Z;
             el.Opacity = dto.Opacity;
@@ -350,6 +357,58 @@ public static class YorteProjectService
         if (string.IsNullOrEmpty(dto.ImageBase64)) return new PaintLayerElement();
         var bmp = DecodeBitmap(dto.ImageBase64);
         return bmp == null ? null : new PaintLayerElement { Source = bmp };
+    }
+
+    private static GroupElement? LoadGroup(ElementDto dto)
+    {
+        if (dto.Children is null) return null;
+        var group = new GroupElement();
+        foreach (var childDto in dto.Children.OrderBy(c => c.Z))
+        {
+            DesignElement? child = childDto.Kind switch
+            {
+                "shape" => new ShapeElement
+                {
+                    CornerRadius = childDto.CornerRadius,
+                    Kind = ParseShapeKind(childDto.ShapeKind),
+                    FillColor1 = FromHex(childDto.Fill1, Colors.Blue),
+                    FillColor2 = FromHex(childDto.Fill2, Colors.LightBlue),
+                    IsGradient = childDto.IsGradient, GradientAngle = childDto.GradientAngle,
+                    GradientType = ParseGradientType(childDto.GradientType),
+                    StrokeColor = FromHex(childDto.Stroke, Colors.Navy),
+                    StrokeThickness = childDto.StrokeThickness,
+                },
+                "image" => LoadImage(childDto),
+                "paint" => LoadPaintLayer(childDto),
+                "text" => new TextElement
+                {
+                    Text = childDto.Text ?? "",
+                    FontFamilyName = childDto.FontFamily ?? "Segoe UI",
+                    FontSize = childDto.FontSize > 0 ? childDto.FontSize : 32,
+                    TextColor1 = FromHex(childDto.Fill1, Color.FromRgb(0x1E, 0x29, 0x3B)),
+                    TextColor2 = FromHex(childDto.Fill2, Color.FromRgb(0x2E, 0x9B, 0xFF)),
+                    IsGradient = childDto.IsGradient,
+                    TextGradientAngle = childDto.GradientAngle,
+                    IsBold = childDto.Bold,
+                    IsItalic = childDto.Italic,
+                    IsUnderline = childDto.Underline,
+                    IsStrikethrough = childDto.Strikethrough,
+                    HasBorder = childDto.TextBorder,
+                    BorderColor = FromHex(childDto.TextBorderColor, Colors.Black),
+                    BorderThickness = childDto.TextBorderThickness > 0 ? childDto.TextBorderThickness : 1,
+                    Direction = ParseTextDirection(childDto.TextDirection),
+                    Alignment = ParseTextAlign(childDto.TextAlignment),
+                    LetterSpacing = childDto.LetterSpacing,
+                    LineSpacing = childDto.LineSpacing > 0 ? childDto.LineSpacing : 120,
+                    WrapWidth = childDto.WrapWidth,
+                },
+                "group" => LoadGroup(childDto),
+                _ => null,
+            };
+            if (child != null) group.Children.Add(child);
+        }
+        if (group.Children.Count == 0) return null;
+        return group;
     }
 
     private static BitmapSource? DecodeBitmap(string base64)

@@ -269,9 +269,32 @@ public class DesignDocument : INotifyPropertyChanged
         Selected = el;
     }
 
+    /// <summary>Find the top-level group that contains this element, if any.</summary>
+    public GroupElement? FindGroupOf(DesignElement el)
+    {
+        foreach (var group in Elements.OfType<GroupElement>())
+            if (ContainsElement(group, el)) return group;
+        return null;
+    }
+
+    private static bool ContainsElement(GroupElement group, DesignElement el)
+    {
+        foreach (var child in group.Children)
+        {
+            if (ReferenceEquals(child, el)) return true;
+            if (child is GroupElement nested && ContainsElement(nested, el)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Map an element to its selectable unit (parent group or itself).</summary>
+    public DesignElement GetSelectableElement(DesignElement el) =>
+        FindGroupOf(el) ?? el;
+
     public void SelectRange(IEnumerable<DesignElement> elements)
     {
         var valid = elements
+            .Select(e => GetSelectableElement(e))
             .Where(e => !e.IsBackgroundLayer && Elements.Contains(e))
             .Distinct()
             .ToList();

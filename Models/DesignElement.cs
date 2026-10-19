@@ -84,13 +84,13 @@ public abstract class DesignElement : INotifyPropertyChanged
         set { if (Set(ref _y, value)) OnDerivedChanged(); }
     }
 
-    public double Width
+    public virtual double Width
     {
         get => _width;
         set => Set(ref _width, Math.Max(1, value));
     }
 
-    public double Height
+    public virtual double Height
     {
         get => _height;
         set => Set(ref _height, Math.Max(1, value));
@@ -420,7 +420,7 @@ public abstract class DesignElement : INotifyPropertyChanged
     /// <summary>Center in pasteboard coords. Used for rotation math.</summary>
     public System.Windows.Point Center => new(X + Width / 2.0, Y + Height / 2.0);
 
-    public Rect Bounds => new(X, Y, Width, Height);
+    public virtual Rect Bounds => new(X, Y, Width, Height);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
