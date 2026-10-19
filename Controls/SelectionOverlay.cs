@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Collections.Generic;
 using System.Windows.Media;
 using System.Windows.Threading;
 using YorteImpact.Models;
@@ -52,6 +53,17 @@ public class SelectionOverlay : FrameworkElement
     {
         get => (Geometry?)GetValue(ContourProperty);
         set => SetValue(ContourProperty, value);
+    }
+
+    public static readonly DependencyProperty TargetsProperty =
+        DependencyProperty.Register(nameof(Targets), typeof(IReadOnlyList<DesignElement>), typeof(SelectionOverlay),
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>All selected elements. More than one draws a grouped box without handles.</summary>
+    public IReadOnlyList<DesignElement>? Targets
+    {
+        get => (IReadOnlyList<DesignElement>?)GetValue(TargetsProperty);
+        set => SetValue(TargetsProperty, value);
     }
 
     private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x2E, 0x9B, 0xFF));
@@ -145,6 +157,12 @@ public class SelectionOverlay : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
+        if (Targets is { Count: > 1 } targets)
+        {
+            DrawMultiSelection(dc, targets);
+            return;
+        }
+
         var t = Target;
         if (t == null) return;
 
@@ -188,6 +206,48 @@ public class SelectionOverlay : FrameworkElement
                 dc.DrawRectangle(HandleFill, handlePen, new Rect(p.X - hs / 2, p.Y - hs / 2, hs, hs));
             }
         }
+    }
+
+    private void DrawMultiSelection(DrawingContext dc, IReadOnlyList<DesignElement> targets)
+    {
+        var itemPen = new Pen(new SolidColorBrush(Color.FromArgb(150, 46, 155, 255)), 1);
+        var groupPen = new Pen(Accent, 1.5);
+        itemPen.Freeze();
+        groupPen.Freeze();
+
+        Rect group = Rect.Empty;
+        foreach (var t in targets)
+        {
+            Rect rotated = RotatedBounds(t);
+            group = group.IsEmpty ? rotated : Rect.Union(group, rotated);
+
+            dc.PushTransform(new RotateTransform(t.RotationAngle,
+                t.X + t.Width / 2, t.Y + t.Height / 2));
+            dc.DrawRectangle(null, itemPen, new Rect(t.X, t.Y, t.Width, t.Height));
+            dc.Pop();
+        }
+
+        if (!group.IsEmpty) dc.DrawRectangle(null, groupPen, group);
+    }
+
+    private static Rect RotatedBounds(DesignElement t)
+    {
+        double cx = t.X + t.Width / 2, cy = t.Y + t.Height / 2;
+        double rad = t.RotationAngle * Math.PI / 180.0;
+        double cos = Math.Cos(rad), sin = Math.Sin(rad);
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var (lx, ly) in new[]
+                 {
+                     (0.0, 0.0), (t.Width, 0.0), (t.Width, t.Height), (0.0, t.Height),
+                 })
+        {
+            double x = cx + (lx - t.Width / 2) * cos - (ly - t.Height / 2) * sin;
+            double y = cy + (lx - t.Width / 2) * sin + (ly - t.Height / 2) * cos;
+            minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x); maxY = Math.Max(maxY, y);
+        }
+        return new Rect(minX, minY, maxX - minX, maxY - minY);
     }
 
     private static double Distance(Point a, Point b)

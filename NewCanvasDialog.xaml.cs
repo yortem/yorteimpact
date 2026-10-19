@@ -46,9 +46,18 @@ public partial class NewCanvasDialog : Window
     private bool _syncing;  // ignore size<->card feedback loops
 
     public NewCanvasDialog(int currentWidth = 1200, int currentHeight = 800,
-                           Color? background = null, bool transparent = false)
+                           Color? background = null, bool transparent = false,
+                           bool projectSettings = false)
     {
         InitializeComponent();
+        if (projectSettings)
+        {
+            Title = "Project settings";
+            HeaderTitle.Text = "Project settings";
+            HeaderSubtitle.Text = "Change the canvas size";
+            PrimaryButton.Content = "Apply";
+            BackgroundSection.Visibility = Visibility.Collapsed;
+        }
         SourceInitialized += (_, _) => DarkTitleBar.Apply(this);
         BuildPresets();
 
@@ -141,9 +150,9 @@ public partial class NewCanvasDialog : Window
     private void Create_Click(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(WidthBox.Text, out int w) || !int.TryParse(HeightBox.Text, out int h)
-            || w < 50 || h < 50 || w > 8000 || h > 8000)
+            || w < 1 || h < 1 || w > 8000 || h > 8000)
         {
-            ErrorText.Text = "Enter whole pixels, 50 – 8000 per side.";
+            ErrorText.Text = "Enter whole pixels, 1 – 8000 per side.";
             ErrorText.Visibility = Visibility.Visible;
             return;
         }

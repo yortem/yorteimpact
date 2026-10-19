@@ -41,6 +41,9 @@ public class TextElement : DesignElement
     private bool _isItalic;
     private bool _isUnderline;
     private bool _isStrikethrough;
+    private bool _hasBorder;
+    private Color _borderColor = Colors.Black;
+    private double _borderThickness = 1;
     private TextDirection _direction = TextDirection.Auto;
     private TextAlign _alignment = TextAlign.Right;
     private double _letterSpacing;
@@ -162,6 +165,43 @@ public class TextElement : DesignElement
         set { if (Set(ref _isStrikethrough, value)) Raise(nameof(Decorations)); }
     }
 
+    /// <summary>Draw an outline around every glyph.</summary>
+    public bool HasBorder
+    {
+        get => _hasBorder;
+        set
+        {
+            if (Set(ref _hasBorder, value))
+            {
+                Raise(nameof(HasVisibleBorder));
+                Raise(nameof(UseSimpleRender));
+            }
+        }
+    }
+
+    public Color BorderColor
+    {
+        get => _borderColor;
+        set => Set(ref _borderColor, value);
+    }
+
+    /// <summary>Outline width in pixels.</summary>
+    public double BorderThickness
+    {
+        get => _borderThickness;
+        set
+        {
+            if (Set(ref _borderThickness, Math.Clamp(value, 0, 20)))
+            {
+                Raise(nameof(HasVisibleBorder));
+                Raise(nameof(UseSimpleRender));
+            }
+        }
+    }
+
+    public bool HasVisibleBorder => _hasBorder && _borderThickness > 0.01;
+
+
     /// <summary>Auto / forced LTR / forced RTL.</summary>
     public TextDirection Direction
     {
@@ -260,7 +300,7 @@ public class TextElement : DesignElement
 
     public TextWrapping Wrapping => _wrapWidth > 0 ? TextWrapping.Wrap : TextWrapping.NoWrap;
 
-    public bool UseSimpleRender => _letterSpacing <= 0.01;
+    public bool UseSimpleRender => _letterSpacing <= 0.01 && !HasVisibleBorder;
 
     /// <summary>Solid or gradient brush for the native TextBlock renderer.</summary>
     public Brush ForegroundBrush
@@ -369,7 +409,7 @@ public class TextElement : DesignElement
                 TextAlignment = LogicalAlignment,
                 TextWrapping = Wrapping,
                 LineHeight = LineHeight,
-                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                LineStackingStrategy = LineStackingStrategy.MaxHeight,
             };
             if (_wrapWidth > 0) tb.Width = _wrapWidth;
             tb.Measure(new Size(
@@ -488,6 +528,44 @@ public class TextElement : DesignElement
     /// <summary>Force a re-measure (used after the in-place editor commits).</summary>
     public void RefreshLayout() => Relayout();
 
+    /// <summary>Copy all appearance settings (not geometry or text content) onto another text element.</summary>
+    public void CopyStyleTo(TextElement t)
+    {
+        t.FontFamilyName = FontFamilyName;
+        t.FontSize = FontSize;
+        t.TextColor1 = TextColor1;
+        t.TextColor2 = TextColor2;
+        t.IsGradient = IsGradient;
+        t.TextGradientAngle = TextGradientAngle;
+        t.IsBold = IsBold;
+        t.IsItalic = IsItalic;
+        t.IsUnderline = IsUnderline;
+        t.IsStrikethrough = IsStrikethrough;
+        t.HasBorder = HasBorder;
+        t.BorderColor = BorderColor;
+        t.BorderThickness = BorderThickness;
+        t.Direction = Direction;
+        t.Alignment = Alignment;
+        t.LetterSpacing = LetterSpacing;
+        t.LineSpacing = LineSpacing;
+        t.WrapWidth = WrapWidth;
+        t.ShadowStyle = ShadowStyle;
+        t.ShadowX = ShadowX;
+        t.ShadowY = ShadowY;
+        t.ShadowBlur = ShadowBlur;
+        t.ShadowOpacity = ShadowOpacity;
+        t.ShadowColor = ShadowColor;
+        t.Opacity = Opacity;
+        t.SoftEdge = SoftEdge;
+    }
+
+    /// <summary>Copy appearance settings; text-specific settings apply to text targets only.</summary>
+    public override void CopyStyleTo(DesignElement target)
+    {
+        base.CopyStyleTo(target);
+        if (target is TextElement text) CopyStyleTo(text);
+    }
+
     public override DesignElement Clone()
     {
         var c = new TextElement
@@ -513,6 +591,7 @@ public class TextElement : DesignElement
             IsGradient = IsGradient, TextGradientAngle = TextGradientAngle,
             IsBold = IsBold, IsItalic = IsItalic,
             IsUnderline = IsUnderline, IsStrikethrough = IsStrikethrough,
+            HasBorder = HasBorder, BorderColor = BorderColor, BorderThickness = BorderThickness,
             Direction = Direction,
             Alignment = Alignment,
             LetterSpacing = LetterSpacing, LineSpacing = LineSpacing,

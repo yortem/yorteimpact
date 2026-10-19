@@ -39,6 +39,13 @@ public static class ContourService
 
     private static Geometry ShapeContour(ShapeElement s)
     {
+        if (s.Kind != ShapeKind.Rectangle)
+        {
+            var g = s.ShapeGeometry.Clone();
+            g.Transform = new TranslateTransform(s.X, s.Y);
+            g.Freeze();
+            return g;
+        }
         double r = Math.Min(s.CornerRadius, Math.Min(s.Width, s.Height) / 2);
         double t = s.StrokeThickness / 2;
         return BoxContour(s, r, t);
@@ -50,7 +57,7 @@ public static class ContourService
         if (el is TextElement t) return BoxContour(t, 0, 4);
         double radius = el switch
         {
-            ShapeElement s => s.CornerRadius,
+            ShapeElement s when s.Kind == ShapeKind.Rectangle => s.CornerRadius,
             ImageElement im => im.CornerRadius,
             _ => 0,
         };
@@ -75,15 +82,10 @@ public static class ContourService
         if (el.Source is not BitmapSource src || src.PixelWidth <= 0 || src.PixelHeight <= 0)
             return BoxContour(el, el.CornerRadius);
 
-        // Visible source rect for UniformToFill + center crop (same math as erase).
-        int pw = src.PixelWidth, ph = src.PixelHeight;
-        double s = Math.Max(el.Width / pw, el.Height / ph);
-        double offX = (pw * s - el.Width) / 2;
-        double offY = (ph * s - el.Height) / 2;
-        int cx = Math.Clamp((int)Math.Floor(offX / s), 0, pw - 1);
-        int cy = Math.Clamp((int)Math.Floor(offY / s), 0, ph - 1);
-        int cw = Math.Clamp((int)Math.Ceiling(el.Width / s), 1, pw - cx);
-        int ch = Math.Clamp((int)Math.Ceiling(el.Height / s), 1, ph - cy);
+        // Visible source rect and scale for the current image fit mode.
+        var fit = el.GetFitGeometry(src);
+        int cx = fit.SrcX, cy = fit.SrcY, cw = fit.SrcW, ch = fit.SrcH;
+        if (cw < 1 || ch < 1) return BoxContour(el, el.CornerRadius);
 
         var crop = new CroppedBitmap(src, new Int32Rect(cx, cy, cw, ch));
         double k = Math.Min(1.0, MaxTraceSize / (double)Math.Max(cw, ch));
@@ -106,9 +108,10 @@ public static class ContourService
         if (loops.Count == 0) return BoxContour(el, el.CornerRadius);
 
         // small-px -> element-local DIPs -> canvas coords (mirror for flip).
-        double dipPerSmall = s / k;
-        double baseX = cx * s - offX;
-        double baseY = cy * s - offY;
+        double dipPerSmallX = fit.ScaleX / k;
+        double dipPerSmallY = fit.ScaleY / k;
+        double baseX = cx * fit.ScaleX + fit.OffsetX;
+        double baseY = cy * fit.ScaleY + fit.OffsetY;
         var geo = new PathGeometry();
         foreach (var loop in loops)
         {
@@ -117,8 +120,8 @@ public static class ContourService
             bool first = true;
             foreach (var p in loop)
             {
-                double lx = baseX + p.X * dipPerSmall;
-                double ly = baseY + p.Y * dipPerSmall;
+                double lx = baseX + p.X * dipPerSmallX;
+                double ly = baseY + p.Y * dipPerSmallY;
                 if (el.FlipHorizontal) lx = el.Width - lx;
                 if (el.FlipVertical) ly = el.Height - ly;
                 var pt = new Point(el.X + lx, el.Y + ly);

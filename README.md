@@ -9,11 +9,15 @@ text on a canvas, style them, slice regions and export the result. Built with
 WPF on .NET 8.
 
 - Flat Z-order (bring forward / back), no layer tree.
-- Vector shapes with solid or gradient fills, borders, rounded corners,
-  shadows, soft edges and directional transparency.
+- Vector shapes (rectangle, ellipse, triangle and custom polygon) with solid or
+  gradient fills, borders, corner radius, shadows, soft edges and directional
+  transparency.
 - Editable text with RTL support, font search, wrapping, spacing and shadows.
+- Raster paintbrush for freehand painting, photo retouching (smudge/blur),
+  watercolor, erasing and blending an image into the background behind it.
 - Slice-based copy, cut and export; transparent PNG output.
 - Image import from the clipboard or by drag-and-drop.
+- Non-destructive photo adjustments and preset thumbnails for images.
 - Dark, compact interface with a resizable inspector.
 
 ## Requirements
@@ -29,8 +33,11 @@ dotnet run
 ```
 
 The editor opens on a **default canvas** (2000 × 2000, white). Change the
-startup default in **Settings** (gear button in the top bar, or `Ctrl+,`); the
-value is stored in `%AppData%\YorteImpact\settings.json`.
+startup default in **Settings** (the Settings button in the top bar, or
+`Ctrl+,`); the value is stored in `%AppData%\YorteImpact\settings.json`.
+
+The editor also remembers its window size, position and maximized state
+between launches.
 
 **New** (`Ctrl+N`) opens the **New Canvas** dialog:
 
@@ -40,10 +47,30 @@ value is stored in `%AppData%\YorteImpact\settings.json`.
 
 ## Workspace
 
+### Tabs
+
+Every project or canvas opens in its own rounded tab in the window title bar.
+The **+** button (`Ctrl+T`) adds a blank canvas tab; the **×** on a tab
+(`Ctrl+W`) closes that tab; if the tab has unsaved changes you are asked to
+save, discard or cancel. Closing the window asks the same for every unsaved
+tab. Each tab keeps its own undo
+history, slices, zoom and scroll position. The active tab also shows the canvas
+size and current zoom in the same large, high-contrast style as the tab title.
+`Ctrl+D` duplicates the current project into a new tab.
+
+Closing the last tab leaves the editor open on an empty state with **New
+project** and **Open project** buttons. You can also paste an image (`Ctrl+V`)
+or drop image files there: each dropped image opens in its own new project,
+sized exactly to that image's pixel dimensions. Dropping images on the tab bar
+does the same; dropping them on the canvas adds them to the current project.
+Dropping a `.yimpact` project opens it in a new tab, and launching the app with
+a `.yimpact` file (for example via **Open with**) starts directly in that
+project.
+
 ### Top bar
 
-New, Open, Save / Save As, project name and canvas size, zoom controls and
-Settings.
+New, Open, Save / Save As, Copy for AI, project name and canvas size, zoom
+controls and Settings.
 
 **Save** chooses the format from the dialog's file type:
 
@@ -54,6 +81,12 @@ Settings.
 
 **Save As** (`Ctrl+Shift+S`) always opens the dialog.
 
+### Canvas
+
+Right-click empty canvas for **Project settings** — change the project's width
+and height without clearing the artwork — plus background color and
+transparency.
+
 ### Left rail
 
 Tools only, with thin group dividers:
@@ -61,24 +94,33 @@ Tools only, with thin group dividers:
 | Tool | Key | Purpose |
 |---|---|---|
 | Pick | `V` | Select, move, resize, rotate |
-| Slice | `M` | Draw export/copy regions |
-| Rectangle | `R` | Draw a shape |
-| Text | `T` | Type text in place |
-| Eyedropper | `I` | Sample a color anywhere (sits above the color well) |
+| Slice | `M` | Draw export/copy/crop regions |
+| Paintbrush | `B` | Paint, smudge/blur, watercolor, erase or merge into the background |
 | Background remover | `E` | Erase a connected color / auto background |
+| Path drawing | `R` | Draw shapes; Polygon uses click-to-connect |
+| Text | `T` | Type text in place |
 
-Below the tools: undo, redo, duplicate, delete, the working-color well and
-zoom in/out.
+Below the tools: undo, redo, duplicate and delete.
 
 ### Attribute bar
 
 Shows the active tool's options:
 
 - **Pick** — transparency, corner radius, soft edge, order, alignment and
-  flip.
+  flip. The controls appear only when an object is selected; corner radius is
+  available for rectangles and images.
 - **Slice** — the *Add slice* toggle.
 - **Background remover** — tolerance, contiguous mode and *Auto*.
-- Other tools show a one-line hint.
+- **Paintbrush** — style, target, color, size, opacity, soft edge, smoothing
+  and presets.
+- **Text** — color, font, size, B/I/U/S, letter spacing, alignment, text
+  border and drop shadow. With no text selected these set the next text's
+  style.
+- **Path drawing** — shape type (rectangle, ellipse, triangle, polygon), a
+  drawing ratio lock (keeps new shapes square/circular), fill color and
+  solid/gradient mode, corner radius for rectangles, border and shadow for the
+  next shape (or the selected shape). Shapes can be as small as 1 px, so thin
+  lines and small squares are allowed.
 
 ### Inspector
 
@@ -87,45 +129,130 @@ The right panel is made of cards and is resizable by dragging its inner edge:
 - **Geometry** — X/Y and W/H on two compact rows, then Corner.
 - **Rotation** — rotation slider and the 90° left/right buttons.
 - **Appearance** (shapes) — solid or gradient fill, colors, gradient type
-  and angle, border color and thickness.
+  and a 3×3 direction compass, border color and thickness.
 - **Text** — font search and list, size, B/I/U/S and alignment.
 - **Fill** (text) — solid or gradient text fill.
-- **Transparency** — directional fade-to-transparent.
+- **Transparency** — directional fade-to-transparent with preview tiles and
+  inline sliders.
 - **Extra settings** (text) — letter spacing, line spacing, width limit and
   drop shadow.
-- **Shadow** (shapes and images) — presets plus custom offset, blur, opacity
-  and color.
+- **Shadow** (shapes and images) — thumbnail presets (Around, Bottom soft,
+  Card, Raised, Crisp, Float, Hard, Glow, None) plus inline offset, blur,
+  opacity and color controls.
 - **Workflow** — a short reminder of common actions.
 
 Value fields use a near-black borderless style; card titles are brighter than
 the muted field labels. The inspector has a thin dark scrollbar.
 
+### Photo tab
+
+The right panel has tabs for **Inspector**, **Photo** and **Grid**. The Photo tab is enabled when an image is selected.
+With nothing selected, only the **Grid** tab is shown; selecting an object
+switches back to Inspector (and adds Photo for images).
+
+Photo edits are non-destructive: the source pixels stay intact, the canvas and
+exports show the adjusted result, and **Reset** always returns to the original.
+The tab includes:
+
+- A live RGB histogram and the image's pixel dimensions.
+- **Light** — exposure, contrast, highlights, shadows, whites and blacks.
+- **Color** — temperature, tint, vibrance and saturation. Temperature uses a
+  blue-to-warm track and Tint a green-to-magenta track so the direction is
+  visible at a glance.
+- **Tone** — colorize the image with any color (orange, purple, teal…) and
+  control the strength. Picking a color turns the amount to 60% if it was zero.
+- **Effects** — blur, sharpen, glow, clarity, vignette and grain.
+- **Presets** — a collapsible grid of looks (Original, Auto, B&W, HDR, Amber,
+  Violet, Portrait, Landscape, Faded, Noir, Sepia, Cinema, Sunset, Silver,
+  Soft, Dramatic, Vintage, Dream and more), each with a thumbnail rendered from
+  the selected image. Quick **Auto**, **B&W**, **HDR** and **Reset** buttons
+  sit above the preset grid.
+
+Photo settings are saved in `.yimpact` and are part of undo/redo.
+
 ## Canvas objects
 
 ### Shapes
 
-Draw with the Rectangle tool. Shapes support:
+Draw with the **Path drawing** tool. Pick **Rectangle**, **Ellipse**,
+**Triangle** or **Polygon** in the top bar:
 
-- Solid or gradient fill (**Linear / Radial / Elliptical**) with an angle.
+- Rectangle, ellipse and triangle: drag a box on the canvas.
+- Polygon: click each corner, then press `Enter` or double-click to close it;
+  `Esc` cancels, `Backspace` removes the last point.
+- Use the lock next to the shape buttons (or hold `Shift` while dragging) to
+  keep width and height equal for squares and circles.
+
+Shapes support:
+
+- Solid or gradient fill (**Linear / Radial / Elliptical**) with a direction
+  compass for linear gradients.
 - Border color and thickness.
-- Corner radius.
+- Corner radius (rectangles).
 - Rotation, flip, opacity.
 - Shadows, soft edge and directional transparency.
 
-The drawing preview shows the final fill, border and corner radius before you
-release the mouse.
+The drawing preview shows the final fill, border and shape before you release
+the mouse. New shapes reuse the last-used fill, border, radius, opacity and
+shadow settings, including after restarting the app.
 
 ### Images
 
-Paste from the clipboard (`Ctrl+V`) or drag image files onto the canvas.
-Images scale to a sensible size, support rounded corners, rotation, shadows
-and the same transparency/soft-edge controls as shapes.
+Paste an image from the clipboard (`Ctrl+V`) into the current project, or drag
+image files onto the canvas to add them as objects. Drop images on the tab bar
+(or the empty-state screen) to open each in a new project whose canvas is
+exactly the image's pixel size, with the image filling it. Images support
+rounded corners, rotation, shadows and the same transparency/soft-edge controls
+as shapes.
+
+The **Image** card sets how resizing affects the raster: **Crop** fills the box
+and hides the overflow, **Fit** shows the whole image with empty space around
+it, and **Stretch** distorts the image to the box. The setting is saved in the
+project.
+
+### Paintbrush
+
+Press `B` or choose the brush in the left rail. The brush writes raster pixels;
+one drag is one undo step.
+
+- **Styles**:
+  - **Paint** - solid color with soft or hard edges.
+  - **Smudge / Blur** - samples the colors under the brush and evens them out;
+    useful for hiding blemishes and softening detail.
+  - **Watercolor** - low-flow color with varied coverage and darker wet edges.
+  - **Eraser** - removes pixels to transparency with the same soft edge.
+  - **Merge** - samples the canvas and objects behind the image and paints
+    those colors over it, blending the image into its surroundings.
+- **Target**:
+  - **Auto** - paints the selected image, or a clicked image; when an image is
+    selected it never paints the canvas behind it. With no image selected it
+    paints the canvas.
+  - **Canvas** - always paints the canvas layer, even over images.
+  - **Selected** - only paints the selected image.
+- Painting on a selected shape or text converts that object into an image in
+  place, so strokes land on it and stay attached to it. `Ctrl+Z` restores the
+  original object.
+- **Size / Opacity / Soft edge / Smoothing** - brush diameter, paint strength,
+  edge feather and path stabilization.
+- **Color** - the swatch opens the color picker. `Alt+click` samples a color
+  under the cursor instead. A small live preview next to the color shows the
+  current size, softness, opacity and color before you paint.
+- **Presets** - built-in brushes plus your own. Each preset shows a small
+  representative stroke. `+` saves the current settings; the `x` next to a
+  saved preset removes it.
+- `[` / `]` change the brush size while the brush is active.
+
+The cursor ring matches the brush size in canvas pixels. Canvas painting uses
+a dedicated raster layer above the paper and below all objects, so objects stay
+editable. Painting on an image edits its pixels and is saved inside the
+`.yimpact` file.
 
 ### Text
 
 Click the canvas and type in place; `Enter` adds a line, `Esc` or clicking
 outside finishes. Double-click a text object with **Pick** to edit it again.
-Empty text is discarded.
+With the **Text** tool, click an existing text to edit it, or drag its frame to
+move it without switching tools. Empty text is discarded.
 
 The **Text** card includes:
 
@@ -136,9 +263,16 @@ The **Text** card includes:
 - **Alignment**: left, center or right. Hebrew/Arabic text is ordered RTL and
   Latin text LTR automatically.
 
-A separate **Fill** card sets solid or gradient text fill. **Extra settings**
+A separate **Fill** card sets solid or gradient text fill, including the same
+direction compass for linear gradients. **Extra settings**
 (closed by default) holds letter spacing, line spacing, width limit with word
 wrap, and a drop shadow.
+
+When the **Text** tool is active, the top attribute bar shows a compact copy of
+these controls: text color, font, size, B/I/U/S, letter spacing, alignment,
+text border (outline color and thickness) and drop shadow. With no text
+selected, they set the style used for the next text. That style is remembered
+between sessions, so new text keeps the last look you used.
 
 Resizing a text object with the Pick handles scales its font. Text objects are
 saved as editable elements in `.yimpact`.
@@ -146,7 +280,29 @@ saved as editable elements in `.yimpact`.
 ### Selection and transforms
 
 - Click to select; a 1px animated outline hugs the actual opaque pixels.
+- Drag on empty canvas with **Pick** to marquee-select every object the rectangle
+  intersects. Hold Ctrl or Shift while marquee-dragging to add to the current
+  selection.
 - Drag to move; corner and side handles resize (Shift keeps proportions).
+- While resizing, hold **Ctrl** to snap the dragged edge to the visible grid
+  lines — useful for matching a column width without locking proportions.
+- The aspect-ratio lock in the Pick tool and in the Inspector's **Geometry**
+  card are the same setting; changing one updates the other. With it on,
+  editing W or H in the Inspector updates the other value too.
+- **Ctrl+click** or **Shift+click** adds an object to the current selection.
+  Drag any selected object to move the whole group; resize and rotate stay
+  available for a single selection.
+- **Alt+drag** or **Ctrl+drag** duplicates the selected object or group and
+  drags the copy; the original stays. A plain Ctrl+click still just adds to the
+  selection. **Ctrl+Shift+drag** duplicates and snaps the copy to the visible
+  grid.
+- **Shift+drag** snaps to canvas edges/centers, other objects' edges/centers,
+  the visible grid columns and repeated gaps between objects (grid-like
+  spacing); orange guides show the snapped line. Every object contributes its
+  own edges and center as snap lines, so objects line up even when they do not
+  sit on the grid.
+- **Delete**, arrow keys and the canvas-align buttons apply to the whole
+  selection.
 - Rotate with the slider or the 90° buttons.
 - Arrow keys nudge by 1px (Shift = 10px).
 
@@ -168,19 +324,23 @@ square. It is honored by copy and export.
 
 Open the collapsible **Transparency** card under the fill cards:
 
-- **Direction** — top/bottom, left/right or either diagonal (8 options).
+- **Direction** — eight preview tiles for top/bottom, left/right and the four
+  diagonals.
 - **Strength** — how transparent the faded end becomes (0 = no fade,
   100 = fully transparent).
 - **Start / End** — where the opaque plateau ends and where the faded level is
   reached. For example: Start 0 / End 30 fades quickly from the edge;
   Start 80 / End 100 stays opaque until the far edge.
 
-It applies to shapes, images and text and is saved in the project.
+It applies to shapes, images and text and is saved in the project. New shapes
+and text start without gradient transparency, even if the last edited element
+used it.
 
 ### Shadows
 
-- Shapes/images: presets (Soft, Medium, Hard, Long, Glow) plus offset, blur,
-  opacity and color.
+- Shapes/images: preview tiles for site-friendly looks (Around, Bottom soft,
+  Card, Raised, Crisp, Float, Hard, Glow, None) plus inline offset, blur,
+  opacity and color sliders.
 - Text: a simple shadow with offset, blur, opacity and color under Extra
   settings.
 
@@ -193,6 +353,8 @@ regions. Click a region to activate it.
 
 - `Ctrl+C` copies the active slice area.
 - `Ctrl+X` cuts it out.
+- `Ctrl+R` crops the project to the active slice (content outside the slice
+  stays in the document).
 - `Delete` cuts the slice area out of the selected object.
 - `Space` shows/hides the slice markers (hidden markers are inactive).
 
@@ -209,21 +371,40 @@ Leaving the Slice tool hides and resets the markers.
   otherwise the whole object is cut.
 - `Ctrl+V` pastes a fresh system image when available; otherwise it stamps the
   internal copy in place.
+- Right-click an object for **Save object as image…** (transparent PNG/WebP),
+  **Copy style** and **Paste style**. The object is rendered at 1:1 with its
+  rotation, shadow and opacity mask. Paste style copies fills, borders, text
+  formatting, shadows, opacity and image settings onto another object.
+- Right-click empty space for project settings, background color and
+  transparency.
 
 ## Colors
 
-- The **Eyedropper** samples exact pixels anywhere on screen, including shape
-  gradients and image pixels. The sample becomes the working color.
 - The in-app **Color Picker** has a saturation/value field, hue strip, hex and
-  RGB entry, palette swatches and colors already used on the canvas.
+  RGB entry, a compact pastel swatch row and colors already used on the canvas.
+- **FROM IMAGE** reads a palette from a picture: press **Paste image**
+  (`Ctrl+V`) or drop an image file on the picker. It shows the most frequent
+  distinct colors; click any swatch to load it.
+- **Pick from screen** inside the Color Picker samples an exact pixel anywhere
+  on screen, including shape gradients and image pixels.
 - Color changes are **previewed live on the canvas** while the picker is open.
   **OK** keeps the preview, **Cancel** restores the previous color. The whole
   picker session is one undo step.
+- `Ctrl+F` opens the picker for the selected shape/text color; when nothing
+  editable is selected it opens the canvas background picker instead.
 - The **Background remover** erases a connected color (magic wand) or the
   background connected to an image border.
 
 ## Navigation
 
+- The small **grid button** in the status bar (bottom-right, next to
+  *Nothing selected*) toggles a website guide grid and a live `W × H / L / T`
+  badge for the selected object. The grid defaults to 12 columns; right-click
+  the button for **Grid settings** or quick 4/6/8/12/16-column presets. When
+  nothing is selected, a **Grid** tab appears next to Inspector/Photo with
+  canvas background color and transparency at the top, followed by sliders for
+  columns, margin, gutter and opacity, plus center-line and visibility toggles.
+  Guides are visual-only and never exported.
 - `+` / `-` (main keyboard and numpad) step through a zoom ladder that always
   includes 100%.
 - `Ctrl+0` resets to 100%; `Ctrl+wheel` zooms at the cursor.
@@ -234,37 +415,60 @@ Leaving the Slice tool hides and resets the markers.
 
 ## Undo and redo
 
-Snapshot-based, 40 steps. A drag is one step; typing coalesces per focus
-session. New canvas and Open are undoable.
+Snapshot-based, 40 steps per tab. A drag is one step; typing coalesces per
+focus session. Opening or creating a canvas adds a tab and leaves the current
+history untouched.
 
 ## Files
 
 ### Project (`.yimpact`)
 
-JSON with embedded PNG image data, so clipboard-pasted images survive a
-save/load round-trip. Stores canvas size/color/transparency, elements,
-text styling, shadows, soft edges and transparency gradients.
+JSON with embedded PNG image data, so clipboard-pasted images and painted
+pixels survive a save/load round-trip. Stores canvas size/color/transparency,
+elements, text styling, shadows, soft edges, transparency gradients, photo
+adjustments and the canvas paint layer. Open a project with **Open project**, by dropping the file
+on the window, or by launching YorteImpact with the file (for example **Open
+with**). Dropped `.yimpact` files always open in their own tab. Dropped images
+are added to the canvas, unless they are dropped on the tab bar or empty state,
+which opens a new project.
 
 ### Image export
 
-Flat PNG, GIF or WebP at the canvas resolution. Transparent canvases export
-with alpha.
+Flat PNG, GIF or WebP at the canvas resolution. Saving ignores the current
+zoom and always uses 1:1 canvas pixels. Transparent canvases export with alpha.
+Photo adjustments and effects are baked into the exported pixels; the original
+embedded image is not changed.
+
+### Copy for AI
+
+**Copy for AI** in the top bar copies a compact text brief of the current
+sketch: canvas size, background, palette, and every element in back-to-front
+order with its position, size, text and visual properties. Embedded image data
+is omitted to keep the text small; export the canvas as PNG and attach it for
+the exact visual reference.
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `V` / `M` / `R` / `T` / `I` / `E` | Pick / Slice / Rectangle / Text / Eyedropper / Background remover |
-| `Ctrl+N` | New canvas |
-| `Ctrl+O` | Open project |
+| `V` / `M` / `B` / `E` / `R` / `T` | Pick / Slice / Paintbrush / Background remover / Path drawing / Text |
+| `[` / `]` | Decrease / increase paintbrush size |
+| `Alt+click` | Sample a paintbrush color from the canvas or image |
+| `Ctrl+N` | New canvas (opens a new tab) |
+| `Ctrl+T` | New blank canvas tab |
+| `Ctrl+W` | Close the active tab |
+| `Ctrl+O` | Open project (in a new tab) |
 | `Ctrl+S` | Save |
 | `Ctrl+Shift+S` | Save As |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` or `Ctrl+Shift+Z` | Redo |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
-| `Ctrl+D` | Duplicate |
-| `Ctrl+F` | Pick the selected shape's fill color |
-| `Ctrl+R` | Fit canvas to selection |
+| `Ctrl+D` | Duplicate the project in a new tab |
+| `Alt+drag` / `Ctrl+drag` | Duplicate the selected object/group and drag the copy |
+| `Ctrl+Shift+drag` | Duplicate and snap the copy to the visible grid |
+| `Shift+drag` | Snap while moving |
+| `Ctrl+F` | Pick the selected shape/text color, or the canvas color when nothing editable is selected |
+| `Ctrl+R` | Fit canvas to selection or active slice |
 | `Ctrl+0` | Zoom to 100% |
 | `+` / `-` | Zoom step |
 | `Ctrl+wheel` | Zoom at cursor |
@@ -276,9 +480,15 @@ with alpha.
 
 ## Notes
 
-- Single selection; `DesignDocument.Selected` is the extension point.
+- Multi-selection is supported; `DesignDocument.SelectedElements` is the
+  extension point and `Selected` is the last-clicked primary object.
 - Slice punch supports axis-aligned elements; rotated elements fall back to
   whole-element delete.
 - Z-indexes normalize to 0..N after every reorder.
+- The canvas paint layer is a reserved background element; it is never
+  selectable and always stays below regular objects.
+- Image retouching changes the embedded raster copy (the original file is not
+  touched); undo stores a snapshot per stroke.
+- Paintbrush presets are saved in `%AppData%\YorteImpact\settings.json`.
 - Letter spacing uses a dedicated text renderer; zero spacing uses the native
   text engine.

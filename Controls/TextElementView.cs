@@ -57,6 +57,14 @@ public class TextElementView : FrameworkElement
             te.FontStyle, te.FontWeight, FontStretches.Normal);
         var flow = te.IsRtl ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
         Brush brush = BuildBrush(te);
+        Pen? borderPen = null;
+        if (te.HasVisibleBorder)
+        {
+            var borderBrush = new SolidColorBrush(te.BorderColor);
+            if (borderBrush.CanFreeze) borderBrush.Freeze();
+            borderPen = new Pen(borderBrush, te.BorderThickness);
+            if (borderPen.CanFreeze) borderPen.Freeze();
+        }
         var culture = CultureInfo.CurrentUICulture;
 
         var lines = te.ComputeLayoutLines();
@@ -75,11 +83,14 @@ public class TextElementView : FrameworkElement
                     runW += spacing * (line.Length - 1);
 
                 if (spacing > 0.01 && line.Length > 1)
-                    DrawSpaced(dc, line, te, typeface, flow, brush, dpi, y, culture);
+                    DrawSpaced(dc, line, te, typeface, flow, brush, borderPen, dpi, y, culture);
                 else
                 {
                     double x = LineX(te, runW);
-                    dc.DrawText(ft, new Point(x, y));
+                    if (borderPen != null)
+                        dc.DrawGeometry(brush, borderPen, ft.BuildGeometry(new Point(x, y)));
+                    else
+                        dc.DrawText(ft, new Point(x, y));
                 }
 
                 if (te.IsUnderline || te.IsStrikethrough)
@@ -105,7 +116,7 @@ public class TextElementView : FrameworkElement
 
     /// <summary>Advance each glyph by its own width + tracking; RTL lays out right-to-left.</summary>
     private static void DrawSpaced(DrawingContext dc, string line, TextElement te,
-        Typeface typeface, FlowDirection flow, Brush brush, double dpi, double y,
+        Typeface typeface, FlowDirection flow, Brush brush, Pen? borderPen, double dpi, double y,
         CultureInfo culture)
     {
         double spacing = te.LetterSpacing;
@@ -125,7 +136,11 @@ public class TextElementView : FrameworkElement
         {
             double w = glyphs[i].WidthIncludingTrailingWhitespace;
             double offset = te.IsRtl ? total - cum - w : cum;
-            dc.DrawText(glyphs[i], new Point(x + offset, y));
+            var pt = new Point(x + offset, y);
+            if (borderPen != null)
+                dc.DrawGeometry(brush, borderPen, glyphs[i].BuildGeometry(pt));
+            else
+                dc.DrawText(glyphs[i], pt);
             cum += w + spacing;
         }
     }

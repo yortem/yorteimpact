@@ -5,9 +5,14 @@
         xmlns:controls="clr-namespace:YorteImpact.Controls"
         Title="YorteImpact" Width="1400" Height="880"
         Icon="pack://application:,,,/favicon.ico"
-        WindowStartupLocation="CenterScreen"
+        WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResize"
         Background="#080A11" Foreground="#E6EEF6" FontSize="11.5"
         PreviewKeyDown="Window_PreviewKeyDown">
+
+  <WindowChrome.WindowChrome>
+    <WindowChrome CaptionHeight="40" ResizeBorderThickness="6" GlassFrameThickness="0"
+                  CornerRadius="0" UseAeroCaptionButtons="False"/>
+  </WindowChrome.WindowChrome>
 
   <Window.Resources>
     <!-- ===== palette ===== -->
@@ -18,19 +23,43 @@
       <GradientStop Color="#2E9BFF" Offset="0.55"/>
       <GradientStop Color="#1F84E0" Offset="1"/>
     </LinearGradientBrush>
+    <LinearGradientBrush x:Key="LogoImpactBrush" StartPoint="0,0.5" EndPoint="1,0.5">
+      <GradientStop Color="#6FC7FF" Offset="0"/>
+      <GradientStop Color="#2E9BFF" Offset="0.45"/>
+      <GradientStop Color="#9A5CFF" Offset="1"/>
+    </LinearGradientBrush>
     <SolidColorBrush x:Key="IconBrush" Color="#E6EEF6"/>
     <SolidColorBrush x:Key="MutedBrush" Color="#8EA0B4"/>
+
+    <!-- color-direction tracks for the Photo tab -->
+    <LinearGradientBrush x:Key="PhotoTemperatureTrack" StartPoint="0,0.5" EndPoint="1,0.5">
+      <GradientStop Color="#2E6BFF" Offset="0"/>
+      <GradientStop Color="#56657A" Offset="0.5"/>
+      <GradientStop Color="#FF7A45" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="PhotoTintTrack" StartPoint="0,0.5" EndPoint="1,0.5">
+      <GradientStop Color="#35C26B" Offset="0"/>
+      <GradientStop Color="#56657A" Offset="0.5"/>
+      <GradientStop Color="#C65CFF" Offset="1"/>
+    </LinearGradientBrush>
+
+    <!-- Transparent-pixel backdrop for brush previews -->
+    <DrawingBrush x:Key="PreviewChecker" TileMode="Tile"
+                  Viewport="0,0,6,6" ViewportUnits="Absolute" Stretch="None">
+      <DrawingBrush.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#1A2636" Geometry="M0,0 H3 V3 H0 Z M3,3 H6 V6 H3 Z"/>
+          <GeometryDrawing Brush="#2A3B52" Geometry="M3,0 H6 V3 H3 Z M0,3 H3 V6 H0 Z"/>
+        </DrawingGroup>
+      </DrawingBrush.Drawing>
+    </DrawingBrush>
 
     <!-- ===== element templates (View for Model types) ===== -->
     <DataTemplate DataType="{x:Type models:ShapeElement}">
       <Border Width="{Binding Width}" Height="{Binding Height}"
-              CornerRadius="{Binding CornerRadius}"
               Opacity="{Binding OpacityFactor}"
               OpacityMask="{Binding OpacityMaskBrush}"
               Effect="{Binding ShadowEffect}"
-              Background="{Binding FillBrush}"
-              BorderBrush="{Binding BorderBrush}"
-              BorderThickness="{Binding StrokeThickness}"
               RenderTransformOrigin="0.5,0.5">
         <Border.RenderTransform>
           <TransformGroup>
@@ -38,6 +67,12 @@
             <RotateTransform Angle="{Binding RotationAngle}"/>
           </TransformGroup>
         </Border.RenderTransform>
+        <Path Data="{Binding ShapeGeometry}"
+              Fill="{Binding FillBrush}"
+              Stroke="{Binding BorderBrush}"
+              StrokeThickness="{Binding StrokeThickness}"
+              StrokeLineJoin="Round" Stretch="None"
+              HorizontalAlignment="Left" VerticalAlignment="Top"/>
       </Border>
     </DataTemplate>
 
@@ -57,6 +92,13 @@
           </TransformGroup>
         </Border.RenderTransform>
       </Border>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type models:PaintLayerElement}">
+      <Image Width="{Binding Width}" Height="{Binding Height}"
+             Source="{Binding Source}" Stretch="Fill"
+             IsHitTestVisible="False"
+             RenderOptions.BitmapScalingMode="HighQuality"/>
     </DataTemplate>
 
     <DataTemplate DataType="{x:Type models:TextElement}">
@@ -92,7 +134,7 @@
                      TextAlignment="{Binding LogicalAlignment}"
                      TextWrapping="{Binding Wrapping}"
                      LineHeight="{Binding LineHeight}"
-                     LineStackingStrategy="BlockLineHeight"
+                     LineStackingStrategy="MaxHeight"
                      TextDecorations="{Binding Decorations}">
             <TextBlock.Style>
               <Style TargetType="TextBlock">
@@ -217,6 +259,30 @@
       <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="6,0,4,0"/>
     </Style>
 
+    <!-- popup list rows for brush presets (not a dropdown/select control) -->
+    <Style x:Key="PresetItemBtn" TargetType="Button">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#E6EEF6"/>
+      <Setter Property="Padding" Value="7,5"/>
+      <Setter Property="Margin" Value="0,1"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    CornerRadius="3" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"
+                                TextElement.Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <!-- attribute-toolbar building blocks -->
     <Style x:Key="AttrGroup" TargetType="Border">
       <Setter Property="Background" Value="#111A27"/><Setter Property="CornerRadius" Value="4"/>
@@ -254,6 +320,30 @@
     <Style x:Key="AttrCaption" TargetType="TextBlock">
       <Setter Property="Foreground" Value="#AEBCCC"/><Setter Property="FontSize" Value="10.5"/>
       <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
+
+    <!-- small color well used by the text tool bar -->
+    <Style x:Key="AttrSwatch" TargetType="Button">
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="Height" Value="22"/>
+      <Setter Property="BorderBrush" Value="#3A4A60"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Background" Value="#2E9BFF"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4"/>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#2E9BFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <!-- ===== top bar buttons ===== -->
@@ -406,6 +496,99 @@
       <Setter Property="FontWeight" Value="Bold"/>
       <Setter Property="FontSize" Value="10"/>
       <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+
+    <!-- right panel tabs: Inspector / Photo -->
+    <Style x:Key="RightTabBtn" TargetType="ToggleButton">
+      <Setter Property="Height" Value="27"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#8EA0B4"/>
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="1,0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="3">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#1A2636"/>
+                <Setter Property="Foreground" Value="#E6EEF6"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- photo preset thumb -->
+    <Style x:Key="PhotoPresetTile" TargetType="Button">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="3"/>
+      <Setter Property="Margin" Value="0,0,5,5"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#2E9BFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ShadowPresetTile" TargetType="Button">
+      <Setter Property="Background" Value="#0B121B"/>
+      <Setter Property="BorderBrush" Value="#223248"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="3"/>
+      <Setter Property="Margin" Value="0,0,4,4"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+              <DataTrigger Binding="{Binding IsActive}" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16263A"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#2E9BFF"/>
+              </DataTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource TopBtn}">
@@ -686,9 +869,217 @@
         </Trigger>
       </Style.Triggers>
     </Style>
+
+    <!-- ===== custom window title bar + tabs ===== -->
+    <Style x:Key="TitleBarBtn" TargetType="Button">
+      <Setter Property="Width" Value="46"/>
+      <Setter Property="Height" Value="40"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#C7D6E6"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#223248"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="TitleBarCloseBtn" TargetType="Button" BasedOn="{StaticResource TitleBarBtn}">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#C42B1C"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#A02518"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="TabCloseBtn" TargetType="Button">
+      <Setter Property="Width" Value="20"/>
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#8EA0B4"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Content" Value="✕"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#223248"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="NewTabBtn" TargetType="Button">
+      <Setter Property="Width" Value="30"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="#C7D6E6"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#223248"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="EmptyPrimaryBtn" TargetType="Button">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="16,8"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#4C8DFF"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#1F84E0"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="EmptySecondaryBtn" TargetType="Button" BasedOn="{StaticResource EmptyPrimaryBtn}">
+      <Setter Property="Background" Value="#223248"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4"
+                    Padding="{TemplateBinding Padding}" BorderBrush="#2B3D52" BorderThickness="1">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#2A3B52"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <DockPanel>
+    <!-- ================= WINDOW TITLE BAR + PROJECT TABS ================= -->
+    <Border DockPanel.Dock="Top" Height="40" Background="#05080E"
+            BorderBrush="#1A2636" BorderThickness="0,0,0,1">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,4,0">
+          <Image Source="pack://application:,,,/favicon.ico" Width="16" Height="16"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock Text="YorteImpact" Foreground="#8EA0B4" FontSize="11" FontWeight="SemiBold"
+                     Margin="8,0,10,0" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <ScrollViewer x:Name="TabDropArea" Grid.Column="1" HorizontalScrollBarVisibility="Hidden"
+                      VerticalScrollBarVisibility="Disabled" Background="Transparent"
+                      AllowDrop="True" DragOver="TabDropArea_DragOver"
+                      DragLeave="TabDropArea_DragLeave" Drop="TabDropArea_Drop"
+                      MouseLeftButtonDown="TabDropArea_MouseLeftButtonDown"
+                      WindowChrome.IsHitTestVisibleInChrome="True">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+            <StackPanel x:Name="TabStrip" Orientation="Horizontal" VerticalAlignment="Bottom"/>
+            <Border x:Name="TabDropPlaceholder" Visibility="Collapsed" IsHitTestVisible="False"
+                    Height="32" MinWidth="190" Margin="6,0,0,4" Padding="12,0"
+                    CornerRadius="6" Background="#111A27"
+                    BorderBrush="#2E9BFF" BorderThickness="1" VerticalAlignment="Bottom">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Path Data="M5,10 H15 M10,5 V15" Stroke="#5FBBFF" StrokeThickness="1.8"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Width="12" Height="12" Stretch="Uniform"/>
+                <TextBlock x:Name="TabDropHintText" Text="Open as new project"
+                           Foreground="#E6EEF6" FontSize="11" FontWeight="SemiBold"
+                           Margin="7,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Border>
+            <Button x:Name="NewTabBtn" Style="{StaticResource NewTabBtn}" Click="NewTab_Click"
+                    ToolTip="New canvas tab (Ctrl+T)" Margin="6,0,0,5" VerticalAlignment="Bottom"
+                    WindowChrome.IsHitTestVisibleInChrome="True">
+              <Path Data="M5,10 H15 M10,5 V15"
+                    Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                    StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                    Width="14" Height="14" Stretch="Uniform"/>
+            </Button>
+          </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal"
+                    WindowChrome.IsHitTestVisibleInChrome="True">
+          <Button Style="{StaticResource TitleBarBtn}" Click="WindowMinimize_Click" ToolTip="Minimize">
+            <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+          </Button>
+          <Button Style="{StaticResource TitleBarBtn}" Click="WindowMaximizeRestore_Click" ToolTip="Maximize">
+            <TextBlock x:Name="MaxRestoreGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+          </Button>
+          <Button Style="{StaticResource TitleBarCloseBtn}" Click="WindowClose_Click" ToolTip="Close">
+            <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10"/>
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
     <!-- ================= TOP BAR ================= -->
     <Border DockPanel.Dock="Top" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="0,0,0,1">
       <Grid Height="44">
@@ -698,23 +1089,13 @@
           <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- logo + title -->
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,4,0">
-          <Border Width="26" Height="26" CornerRadius="4" Background="{StaticResource AccentGlossBrush}"
-                  VerticalAlignment="Center">
-            <Path Data="M12,4 L20,9 L12,14 L4,9 Z M6.5,12.5 L12,15.5 L17.5,12.5 M6.5,16 L12,19 L17.5,16"
-                  Stroke="White" StrokeThickness="1.8" Fill="Transparent"
-                  Width="15" Height="15" Stretch="Uniform"/>
-          </Border>
-          <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
-            <TextBlock Text="YorteImpact" FontWeight="Bold" FontSize="13"/>
-            <TextBlock Text="{Binding DocumentName}" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
-                       Margin="12,1,0,0" VerticalAlignment="Center"/>
-            <TextBlock Text="·" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
-                       Margin="6,0,0,0" VerticalAlignment="Center"/>
-            <TextBlock Text="{Binding CanvasSizeText}" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
-                       Margin="6,1,0,0" VerticalAlignment="Center"/>
-          </StackPanel>
+        <!-- logo -->
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,30,0">
+          <TextBlock VerticalAlignment="Center" FontFamily="Segoe UI" FontWeight="Black" FontSize="16"
+                     TextOptions.TextFormattingMode="Ideal">
+            <Run Text="Y&#x200A;O&#x200A;R&#x200A;T&#x200A;E" Foreground="#FFFFFF"/>
+            <Run Text="&#x200A;I&#x200A;M&#x200A;P&#x200A;A&#x200A;C&#x200A;T" Foreground="{StaticResource LogoImpactBrush}"/>
+          </TextBlock>
         </StackPanel>
 
         <!-- file actions -->
@@ -741,6 +1122,28 @@
               <TextBlock Text="Save" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
+          <Button Style="{StaticResource TopBtn}" Click="CopyAiBrief_Click" ToolTip="Copy a compact AI-readable brief of this sketch">
+            <StackPanel Orientation="Horizontal">
+              <Path Data="M4,4 H16 V20 H4 Z M7,4 V2 H13 V4 M7,10 H13 M7,14 H13"
+                    Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
+                    Width="15" Height="15" Stretch="Uniform"/>
+              <TextBlock Text="Copy for AI" Margin="7,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button Style="{StaticResource TopBtn}" Click="Settings_Click" ToolTip="Settings (Ctrl+,) — default canvas size">
+            <TextBlock Text="Settings" VerticalAlignment="Center"/>
+          </Button>
+        </StackPanel>
+
+        <!-- document name + canvas size -->
+        <StackPanel x:Name="DocInfo" Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right"
+                    VerticalAlignment="Center" Margin="0,0,12,0">
+          <TextBlock Text="{Binding DocumentName}" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
+                     VerticalAlignment="Center"/>
+          <TextBlock Text="·" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
+                     Margin="6,0,0,0" VerticalAlignment="Center"/>
+          <TextBlock Text="{Binding CanvasSizeText}" Foreground="{StaticResource MutedBrush}" FontSize="9.5"
+                     Margin="6,0,0,0" VerticalAlignment="Center"/>
         </StackPanel>
 
         <!-- zoom readout -->
@@ -759,12 +1162,6 @@
               </Button>
             </StackPanel>
           </Border>
-          <Button Style="{StaticResource TopBtn}" Padding="7,3" Margin="8,0,0,0"
-                  Click="Settings_Click" ToolTip="Settings (Ctrl+,) — default canvas size">
-            <Path Data="M12,8.5 A3.5,3.5 0 1,1 11.99,8.5 M12,2 V4.5 M12,19.5 V22 M2,12 H4.5 M19.5,12 H22 M4.9,4.9 L6.7,6.7 M17.3,17.3 L19.1,19.1 M19.1,4.9 L17.3,6.7 M6.7,17.3 L4.9,19.1"
-                  Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
-                  Width="15" Height="15" Stretch="Uniform"/>
-          </Button>
         </StackPanel>
 
       </Grid>
@@ -786,6 +1183,22 @@
             <!-- Pick tool settings: object properties (guide pp.97-104) -->
             <StackPanel x:Name="AttrPickPanel" Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,12,0" Visibility="Collapsed">
+              <ToggleButton x:Name="AttrRatioLockBtn" Style="{StaticResource SegBtn}"
+                            Click="AttrRatioLock_Click"
+                            ToolTip="Lock aspect ratio while resizing (Shift also keeps proportions)">
+                <Grid Width="16" Height="16">
+                  <Path x:Name="RatioUnlockIcon"
+                        Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        Fill="Transparent" StrokeLineJoin="Round"/>
+                  <Path x:Name="RatioLockIcon" Visibility="Collapsed"
+                        Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6 V9"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        Fill="Transparent" StrokeLineJoin="Round"/>
+                </Grid>
+              </ToggleButton>
+              <Border Style="{StaticResource AttrSep}" Margin="10,7,16,7"/>
+
               <controls:ValueSlider Decimals="0" x:Name="AttrOpacity" Caption="Transparency" Suffix="%"
                                     Minimum="0" Maximum="100" Margin="0,0,16,0"
                                     ValueChanged="AttrOpacity_ValueChanged"/>
@@ -798,8 +1211,7 @@
                                     Minimum="0" Maximum="100" Margin="0,0,8,0"
                                     ValueChanged="AttrSoft_ValueChanged"/>
 
-              <Border Style="{StaticResource AttrSep}"/>
-              <TextBlock Text="ORDER" Style="{StaticResource AttrLabel}"/>
+              <Border Style="{StaticResource AttrSep}" Margin="10,7,16,7"/>
               <Button Style="{StaticResource AttrBtn}" Click="BringFront_Click" ToolTip="Bring to front (top level)">
                 <Path Data="M6,12 L12,6 L18,12 M6,17 L12,11 L18,17" Stroke="{StaticResource IconBrush}"
                       StrokeThickness="1.9" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
@@ -817,8 +1229,7 @@
                       StrokeThickness="1.9" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
               </Button>
 
-              <Border Style="{StaticResource AttrSep}"/>
-              <TextBlock Text="ALIGN" Style="{StaticResource AttrLabel}"/>
+              <Border Style="{StaticResource AttrSep}" Margin="10,7,16,7"/>
               <Button Style="{StaticResource AttrBtn}" Tag="L" Click="AlignToCanvas_Click" ToolTip="Align left edge to the canvas">
                 <Path Data="M3,3 V15 M6,6 H15 M6,12 H12" Stroke="{StaticResource IconBrush}"
                       StrokeThickness="1.6" Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
@@ -848,8 +1259,7 @@
                       StrokeThickness="1.6" Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
               </Button>
 
-              <Border Style="{StaticResource AttrSep}"/>
-              <TextBlock Text="FLIP" Style="{StaticResource AttrLabel}"/>
+              <Border Style="{StaticResource AttrSep}" Margin="10,7,16,7"/>
               <Button Style="{StaticResource AttrBtn}" Click="FlipH_Click" ToolTip="Flip horizontal">
                 <Path Data="M9,5 L4,12 L9,19 M15,5 L20,12 L15,19 M12,4 V20"
                       Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
@@ -896,6 +1306,382 @@
                          Style="{StaticResource AttrCaption}" Margin="4,0,0,0"/>
             </StackPanel>
 
+            <!-- Paintbrush settings -->
+            <StackPanel x:Name="AttrBrushPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0" Visibility="Collapsed">
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,6,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrBrushPaintBtn" Style="{StaticResource SegBtn}"
+                                Tag="Paint" Click="AttrBrushStyle_Click" ToolTip="Paint">
+                    <Path Data="M11,1 L15,5 L8,12 L4,8 Z M4,8 L1,15 L8,12"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.5"
+                          Fill="Transparent" StrokeLineJoin="Round"
+                          Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushSmudgeBtn" Style="{StaticResource SegBtn}"
+                                Tag="Smudge" Click="AttrBrushStyle_Click"
+                                ToolTip="Smudge / Blur - evens out colors under the brush">
+                    <Path Data="M2,11 C4,7 6,13 8,9 C10,5 12,11 14,8 M2,5 C4,3 6,6 8,4 C10,2 12,5 14,4"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                          Fill="Transparent" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushWaterBtn" Style="{StaticResource SegBtn}"
+                                Tag="Watercolor" Click="AttrBrushStyle_Click" ToolTip="Watercolor">
+                    <Path Data="M8,1 C8,1 13,7 13,10 A5,5 0 1 1 3,10 C3,7 8,1 8,1 Z"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.5"
+                          Fill="Transparent" StrokeLineJoin="Round"
+                          Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushEraserBtn" Style="{StaticResource SegBtn}"
+                                Tag="Eraser" Click="AttrBrushStyle_Click" ToolTip="Eraser">
+                    <Path Data="M2,11 L8,2 L14,7 L8,16 Z M1,18 H15"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.5"
+                          Fill="Transparent" StrokeLineJoin="Round"
+                          Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushMergeBtn" Style="{StaticResource SegBtn}"
+                                Tag="Merge" Click="AttrBrushStyle_Click"
+                                ToolTip="Merge - paints the colors from behind the image">
+                    <Path Data="M2,2 H9 V9 H2 Z M7,7 H14 V14 H7 Z"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.5"
+                          Fill="Transparent" StrokeLineJoin="Round"
+                          Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrBrushAutoBtn" Style="{StaticResource SegBtn}"
+                                Tag="Auto" Click="AttrBrushTarget_Click"
+                                ToolTip="Auto - paints the selected object or image, or a clicked image; otherwise the canvas">
+                    <Path Data="M8,1 L9.4,5.2 L13.6,6.6 L9.4,8 L8,12.2 L6.6,8 L2.4,6.6 L6.6,5.2 Z"
+                          Fill="{StaticResource IconBrush}" Width="15" Height="15" Stretch="Uniform"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushCanvasBtn" Style="{StaticResource SegBtn}"
+                                Tag="Canvas" Click="AttrBrushTarget_Click"
+                                ToolTip="Canvas - always paints the canvas layer">
+                    <Rectangle Width="13" Height="10" RadiusX="1" RadiusY="1"
+                               Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                               Fill="Transparent"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrBrushSelectedBtn" Style="{StaticResource SegBtn}"
+                                Tag="Selected" Click="AttrBrushTarget_Click"
+                                ToolTip="Selected - paints the selected object or image only">
+                    <Grid Width="15" Height="15">
+                      <Path Data="M3,5 H12 V11 H3 Z"
+                            Stroke="{StaticResource IconBrush}" StrokeThickness="1.2"
+                            StrokeDashArray="2 1.5" Fill="Transparent"/>
+                      <Rectangle Width="3" Height="3" Fill="{StaticResource IconBrush}"
+                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="1"/>
+                      <Rectangle Width="3" Height="3" Fill="{StaticResource IconBrush}"
+                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="1"/>
+                    </Grid>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+
+              <Button x:Name="AttrBrushColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrBrushColor_Click" Margin="0,0,8,0"
+                      ToolTip="Brush color (Alt+click on the canvas samples a color)"/>
+
+              <Border Width="54" Height="24" Margin="0,0,10,0" CornerRadius="3"
+                      Background="{StaticResource PreviewChecker}"
+                      BorderBrush="#223248" BorderThickness="1" ClipToBounds="True"
+                      ToolTip="Live brush preview">
+                <Image x:Name="AttrBrushPreview" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+              </Border>
+
+              <controls:ValueSlider x:Name="AttrBrushSize" Decimals="0" Caption="Size" Suffix="px"
+                                    Minimum="1" Maximum="300" Margin="0,0,14,0"
+                                    ValueChanged="AttrBrushSize_ValueChanged"/>
+
+              <controls:ValueSlider x:Name="AttrBrushOpacity" Decimals="0" Caption="Opacity" Suffix="%"
+                                    Minimum="0" Maximum="100" Margin="0,0,14,0"
+                                    ValueChanged="AttrBrushOpacity_ValueChanged"/>
+
+              <controls:ValueSlider x:Name="AttrBrushSoft" Decimals="0" Caption="Soft edge" Suffix="%"
+                                    Minimum="0" Maximum="100" Margin="0,0,14,0"
+                                    ValueChanged="AttrBrushSoft_ValueChanged"/>
+
+              <controls:ValueSlider x:Name="AttrBrushSmooth" Decimals="0" Caption="Smooth" Suffix="%"
+                                    Minimum="0" Maximum="100" Margin="0,0,8,0"
+                                    ValueChanged="AttrBrushSmooth_ValueChanged"/>
+
+              <Border Style="{StaticResource AttrSep}"/>
+              <ToggleButton x:Name="AttrBrushPresetBtn" Style="{StaticResource SegBtn}"
+                            ToolTip="Brush presets">
+                <Path Data="M4,2 H12 V14 L8,11 L4,14 Z"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.5"
+                      Fill="Transparent" StrokeLineJoin="Round"
+                      Width="14" Height="15" Stretch="Uniform"/>
+              </ToggleButton>
+              <Popup x:Name="AttrBrushPresetPopup" Placement="Bottom"
+                     PlacementTarget="{Binding ElementName=AttrBrushPresetBtn}"
+                     IsOpen="{Binding IsChecked, ElementName=AttrBrushPresetBtn, Mode=TwoWay}"
+                     StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Background="#111A27" BorderBrush="#223248" BorderThickness="1"
+                        CornerRadius="4" Padding="8" Margin="0,4,8,8" Width="230">
+                  <Border.Effect>
+                    <DropShadowEffect Color="Black" Opacity="0.5" BlurRadius="10" ShadowDepth="2"/>
+                  </Border.Effect>
+                  <StackPanel>
+                    <TextBlock Text="BRUSH PRESETS" Style="{StaticResource AttrLabel}"
+                               Margin="4,0,0,5"/>
+                    <ItemsControl x:Name="AttrBrushPresetList">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid Width="210">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto"/>
+                              <ColumnDefinition Width="*"/>
+                              <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="56" Height="24"
+                                    Margin="0,1,7,1" CornerRadius="3"
+                                    Background="{StaticResource PreviewChecker}"
+                                    BorderBrush="#223248" BorderThickness="1"
+                                    ClipToBounds="True">
+                              <Image Source="{Binding Preview}" Stretch="Fill"
+                                     RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
+                            <Button Grid.Column="1" Style="{StaticResource PresetItemBtn}"
+                                    Click="AttrBrushPresetItem_Click" Tag="{Binding}">
+                              <TextBlock Text="{Binding Name}" FontSize="11"
+                                         TextTrimming="CharacterEllipsis"/>
+                            </Button>
+                            <Button Grid.Column="2" Padding="5,4" Margin="2,1"
+                                    HorizontalContentAlignment="Center"
+                                    Click="AttrBrushPresetDeleteItem_Click" Tag="{Binding}"
+                                    ToolTip="Delete this preset">
+                              <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource PresetItemBtn}">
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CanDelete}" Value="False">
+                                      <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </Button.Style>
+                              <TextBlock Text="&#x00D7;" FontSize="12"/>
+                            </Button>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+              </Popup>
+              <TextBlock x:Name="AttrBrushPresetName" Text="Custom"
+                         Style="{StaticResource AttrCaption}" MaxWidth="76"
+                         TextTrimming="CharacterEllipsis" Margin="2,0,4,0"
+                         VerticalAlignment="Center"/>
+              <Button Style="{StaticResource AttrBtn}" Click="AttrBrushPresetSave_Click"
+                      ToolTip="Save the current brush settings as a preset">
+                <TextBlock Text="+" FontSize="13" FontWeight="Bold"/>
+              </Button>
+
+              <TextBlock Text="B: paint, [ / ] size, Alt+click samples"
+                         Style="{StaticResource AttrCaption}" Margin="8,0,0,0"/>
+            </StackPanel>
+
+            <!-- Text tool settings -->
+            <StackPanel x:Name="AttrTextPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0" Visibility="Collapsed">
+              <Button x:Name="AttrTextColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrTextColor_Click" ToolTip="Text color" Margin="0,0,8,0"/>
+
+              <ComboBox x:Name="AttrTextFontCombo" Style="{StaticResource DarkCombo}" Width="150"
+                        Height="28" Margin="0,0,6,0" MaxDropDownHeight="300"
+                        ItemContainerStyle="{StaticResource DarkComboItem}"
+                        SelectionChanged="AttrTextFont_SelectionChanged"
+                        ToolTip="Font family">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" FontFamily="{Binding}" FontSize="13"
+                               TextTrimming="CharacterEllipsis"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+
+              <controls:ValueSlider x:Name="AttrTextSize" Compact="True" Decimals="0"
+                                    Minimum="6" Maximum="300" Margin="0,0,8,0"
+                                    ValueChanged="AttrTextSize_ValueChanged"
+                                    ToolTip="Font size"/>
+
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrTextBoldBtn" Style="{StaticResource SegBtn}"
+                                Click="AttrTextStyle_Click" ToolTip="Bold">
+                    <TextBlock Text="B" FontWeight="Bold" FontSize="12"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrTextItalicBtn" Style="{StaticResource SegBtn}"
+                                Click="AttrTextStyle_Click" ToolTip="Italic">
+                    <TextBlock Text="I" FontStyle="Italic" FontSize="12"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrTextUnderlineBtn" Style="{StaticResource SegBtn}"
+                                Click="AttrTextStyle_Click" ToolTip="Underline">
+                    <TextBlock Text="U" TextDecorations="Underline" FontSize="12"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrTextStrikeBtn" Style="{StaticResource SegBtn}"
+                                Click="AttrTextStyle_Click" ToolTip="Strikethrough">
+                    <TextBlock Text="S" TextDecorations="Strikethrough" FontSize="12"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+
+              <ToggleButton x:Name="AttrTextSpacingBtn" Style="{StaticResource SegBtn}"
+                            ToolTip="Letter spacing" Margin="0,0,2,0">
+                <Grid Width="18" Height="18">
+                  <Rectangle Stroke="{StaticResource IconBrush}" StrokeThickness="1"
+                             StrokeDashArray="2 2" Fill="Transparent" Margin="0.5"/>
+                  <TextBlock Text="A" FontSize="11" HorizontalAlignment="Center"
+                             VerticalAlignment="Center"/>
+                </Grid>
+              </ToggleButton>
+              <Popup x:Name="AttrTextSpacingPopup" Placement="Bottom"
+                     PlacementTarget="{Binding ElementName=AttrTextSpacingBtn}"
+                     IsOpen="{Binding IsChecked, ElementName=AttrTextSpacingBtn, Mode=TwoWay}"
+                     StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Background="#111A27" BorderBrush="#223248" BorderThickness="1"
+                        CornerRadius="4" Padding="10,8" Margin="0,4,8,8">
+                  <Border.Effect>
+                    <DropShadowEffect Color="Black" Opacity="0.5" BlurRadius="10" ShadowDepth="2"/>
+                  </Border.Effect>
+                  <StackPanel>
+                    <TextBlock Text="LETTER SPACING" Style="{StaticResource AttrLabel}"
+                               Margin="0,0,0,6"/>
+                    <controls:ValueSlider x:Name="AttrTextSpacing" Decimals="0" Suffix="px"
+                                          Minimum="0" Maximum="50"
+                                          ValueChanged="AttrTextSpacing_ValueChanged"/>
+                  </StackPanel>
+                </Border>
+              </Popup>
+
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,8,0">
+                <Button x:Name="AttrTextAlignBtn" Style="{StaticResource AttrBtn}"
+                        Click="AttrTextAlign_Click" ToolTip="Alignment: right (click to change)">
+                  <Path x:Name="AttrTextAlignIcon"
+                        Data="M3,5 H21 M10,10 H21 M3,15 H21 M13,20 H21"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                        Fill="Transparent" Width="16" Height="16" Stretch="Uniform"/>
+                </Button>
+              </Border>
+
+              <Border Style="{StaticResource AttrSep}"/>
+
+              <CheckBox x:Name="AttrTextBorderCheck" Style="{StaticResource DarkSwitch}"
+                        Content="Border" Margin="0,0,6,0"
+                        Checked="AttrTextBorder_Toggled" Unchecked="AttrTextBorder_Toggled"
+                        ToolTip="Outline around the text"/>
+              <Button x:Name="AttrTextBorderColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrTextBorderColor_Click" ToolTip="Border color" Margin="0,0,6,0"
+                      Background="#000000"/>
+              <controls:ValueSlider x:Name="AttrTextBorderThickness" Compact="True" Decimals="0"
+                                    Minimum="0" Maximum="20" Margin="0,0,8,0"
+                                    ValueChanged="AttrTextBorderThickness_ValueChanged"
+                                    ToolTip="Border thickness"/>
+
+              <Border Style="{StaticResource AttrSep}"/>
+
+              <CheckBox x:Name="AttrTextShadowCheck" Style="{StaticResource DarkSwitch}"
+                        Content="Shadow" Margin="0,0,6,0"
+                        Checked="AttrTextShadow_Toggled" Unchecked="AttrTextShadow_Toggled"
+                        ToolTip="Drop shadow"/>
+              <Button x:Name="AttrTextShadowColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrTextShadowColor_Click" ToolTip="Shadow color"
+                      Background="#000000"/>
+            </StackPanel>
+
+            <!-- Rectangle (shape) tool settings -->
+            <StackPanel x:Name="AttrRectPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0" Visibility="Collapsed">
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,6,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrShapeRectBtn" Style="{StaticResource SegBtn}"
+                                Tag="Rectangle" Click="AttrShapeKind_Click" ToolTip="Rectangle">
+                    <Rectangle Width="14" Height="11" RadiusX="1.5" RadiusY="1.5"
+                               Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"
+                               Fill="Transparent"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrShapeEllipseBtn" Style="{StaticResource SegBtn}"
+                                Tag="Ellipse" Click="AttrShapeKind_Click" ToolTip="Ellipse">
+                    <Ellipse Width="14" Height="11" Stroke="{StaticResource IconBrush}"
+                             StrokeThickness="1.8" Fill="Transparent"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrShapeTriangleBtn" Style="{StaticResource SegBtn}"
+                                Tag="Triangle" Click="AttrShapeKind_Click" ToolTip="Triangle">
+                    <Path Data="M8,0 L16,13 H0 Z" Width="14" Height="13" Stretch="Uniform"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"
+                          StrokeLineJoin="Round" Fill="Transparent"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrShapePolygonBtn" Style="{StaticResource SegBtn}"
+                                Tag="Polygon" Click="AttrShapeKind_Click"
+                                ToolTip="Polygon — click points to draw">
+                    <Path Data="M8,0 L16,4.9 L13.2,13 H2.8 L0,4.9 Z" Width="14" Height="13"
+                          Stretch="Uniform" Stroke="{StaticResource IconBrush}"
+                          StrokeThickness="1.8" StrokeLineJoin="Round" Fill="Transparent"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+              <ToggleButton x:Name="AttrDrawRatioLockBtn" Style="{StaticResource SegBtn}"
+                            Margin="1,0,6,0" Click="AttrDrawRatioLock_Click"
+                            ToolTip="Keep width and height equal while drawing (square/circle)">
+                <Grid Width="16" Height="16">
+                  <Path x:Name="DrawRatioUnlockIcon"
+                        Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        Fill="Transparent" StrokeLineJoin="Round"/>
+                  <Path x:Name="DrawRatioLockIcon" Visibility="Collapsed"
+                        Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6 V9"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        Fill="Transparent" StrokeLineJoin="Round"/>
+                </Grid>
+              </ToggleButton>
+              <Button x:Name="AttrShapeFill1Btn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrShapeFill1_Click" ToolTip="Fill color" Margin="0,0,6,0"/>
+              <ComboBox x:Name="AttrShapeFillModeCombo" Style="{StaticResource DarkCombo}" Width="92"
+                        Height="28" Margin="0,0,6,0" ItemContainerStyle="{StaticResource DarkComboItem}"
+                        SelectionChanged="AttrShapeFillMode_SelectionChanged" ToolTip="Fill type">
+                <ComboBoxItem Content="Solid"/>
+                <ComboBoxItem Content="Gradient"/>
+              </ComboBox>
+              <Button x:Name="AttrShapeFill2Btn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrShapeFill2_Click" ToolTip="Gradient end color" Margin="0,0,8,0"
+                      Visibility="Collapsed"/>
+
+              <controls:ValueSlider x:Name="AttrShapeCorner" Compact="True" Decimals="0"
+                                    Minimum="0" Maximum="250" Margin="0,0,8,0"
+                                    Caption="Corner" ValueChanged="AttrShapeCorner_ValueChanged"
+                                    ToolTip="Corner radius"/>
+
+              <Border Style="{StaticResource AttrSep}"/>
+
+              <CheckBox x:Name="AttrShapeBorderCheck" Style="{StaticResource DarkSwitch}"
+                        Content="Border" Margin="0,0,6,0"
+                        Checked="AttrShapeBorder_Toggled" Unchecked="AttrShapeBorder_Toggled"
+                        ToolTip="Shape border"/>
+              <Button x:Name="AttrShapeBorderColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrShapeBorderColor_Click" ToolTip="Border color" Margin="0,0,6,0"
+                      Background="#26549F"/>
+              <controls:ValueSlider x:Name="AttrShapeBorderThickness" Compact="True" Decimals="0"
+                                    Minimum="0" Maximum="20" Margin="0,0,8,0"
+                                    ValueChanged="AttrShapeBorderThickness_ValueChanged"
+                                    ToolTip="Border thickness"/>
+
+              <Border Style="{StaticResource AttrSep}"/>
+
+              <CheckBox x:Name="AttrShapeShadowCheck" Style="{StaticResource DarkSwitch}"
+                        Content="Shadow" Margin="0,0,6,0"
+                        Checked="AttrShapeShadow_Toggled" Unchecked="AttrShapeShadow_Toggled"
+                        ToolTip="Drop shadow"/>
+              <Button x:Name="AttrShapeShadowColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrShapeShadowColor_Click" ToolTip="Shadow color"
+                      Background="#000000"/>
+            </StackPanel>
+
             <!-- other tools: hint -->
             <TextBlock x:Name="AttrHint" VerticalAlignment="Center" Margin="4,0,10,0"
                        Foreground="#AEBCCC" FontSize="10" TextWrapping="NoWrap"/>
@@ -910,9 +1696,28 @@
         <TextBlock x:Name="StatusText" Text="Pick tool: click to select, drag to move. Ctrl+V pastes an image."/>
       </StatusBarItem>
       <StatusBarItem HorizontalAlignment="Right">
-        <StackPanel Orientation="Horizontal">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock x:Name="ZoomStatusText" Text="100%" Margin="0,0,14,0"/>
-          <TextBlock x:Name="SelectionText" Text="Nothing selected"/>
+          <TextBlock x:Name="SelectionText" Text="Nothing selected" Margin="0,0,10,0"/>
+          <ToggleButton x:Name="GridToggleBtn" Style="{StaticResource SegBtn}"
+                        Width="22" Height="22" Margin="0" Background="Transparent"
+                        VerticalAlignment="Center" Click="GridToggle_Click"
+                        ToolTip="Show guides and measurements. Right-click: grid settings and columns.">
+            <ToggleButton.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Grid settings…" Click="OpenGridSettings_Click"/>
+                <Separator/>
+                <MenuItem Header="4 columns" Tag="4" Click="GridColumns_Click"/>
+                <MenuItem Header="6 columns" Tag="6" Click="GridColumns_Click"/>
+                <MenuItem Header="8 columns" Tag="8" Click="GridColumns_Click"/>
+                <MenuItem Header="12 columns" Tag="12" Click="GridColumns_Click"/>
+                <MenuItem Header="16 columns" Tag="16" Click="GridColumns_Click"/>
+              </ContextMenu>
+            </ToggleButton.ContextMenu>
+            <Path Data="M4,4 H10 V10 H4 Z M14,4 H20 V10 H14 Z M4,14 H10 V20 H4 Z M14,14 H20 V20 H14 Z"
+                  Stroke="{StaticResource IconBrush}" StrokeThickness="1.6" Fill="Transparent"
+                  Width="14" Height="14" Stretch="Uniform"/>
+          </ToggleButton>
         </StackPanel>
       </StatusBarItem>
     </StatusBar>
@@ -935,86 +1740,63 @@
                   Stroke="{StaticResource IconBrush}" StrokeThickness="2" Fill="Transparent"
                   Width="20" Height="20" Stretch="Uniform"/>
           </ToggleButton>
+          <!-- paintbrush -->
+          <ToggleButton x:Name="SideBrushBtn" Style="{StaticResource SideTool}"
+                        Click="ToolBrush_Click" ToolTip="Paintbrush (B) - paint, smudge, watercolor, erase or merge into the background">
+            <Grid Width="20" Height="20">
+              <Path Data="M15,3 L20,8 L11,17 L6,12 Z"
+                    Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                    Fill="Transparent" StrokeLineJoin="Round"/>
+              <Path Data="M6,12 L2,21 L11,17"
+                    Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                    Fill="Transparent" StrokeLineJoin="Round"/>
+            </Grid>
+          </ToggleButton>
+
           <!-- background remover (magic wand) -->
           <ToggleButton x:Name="SideEraseBtn" Style="{StaticResource SideTool}"
-                        Click="ToolErase_Click" ToolTip="Background remover (E) — click an image to erase a color, or Auto to erase the border background">
-            <Path Data="M4,20 L13,11 M12.2,3.6 L13.6,7 L17,8.4 L13.6,9.8 L12.2,13.2 L10.8,9.8 L7.4,8.4 L10.8,7 Z"
-                  Stroke="{StaticResource IconBrush}" StrokeThickness="1.8" Fill="Transparent"
-                  StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform"/>
+                        Click="ToolErase_Click" ToolTip="Background remover (E) - click an image to erase a color, or Auto to erase the border background">
+            <Grid Width="20" Height="20">
+              <Grid>
+                <Grid.RenderTransform>
+                  <TranslateTransform Y="-3"/>
+                </Grid.RenderTransform>
+                <Rectangle Width="11" Height="16" RadiusX="2.2" RadiusY="2.2"
+                           Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
+                           RenderTransformOrigin="0.5,0.5">
+                  <Rectangle.RenderTransform>
+                    <RotateTransform Angle="45"/>
+                  </Rectangle.RenderTransform>
+                </Rectangle>
+                <Path Data="M8.5,4.5 L15.5,11.5" Stroke="{StaticResource IconBrush}"
+                      StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+              </Grid>
+              <Path Data="M1,19 H6 M10,19 H19" Stroke="{StaticResource IconBrush}"
+                    StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+            </Grid>
           </ToggleButton>
 
           <Border Style="{StaticResource RailDivider}"/>
           <!-- fa-square : rectangle draw tool -->
           <ToggleButton x:Name="SideRectBtn" Style="{StaticResource SideTool}"
-                        Click="ToolRect_Click" ToolTip="Rectangle (R) — drag on the canvas to draw">
-            <Path Data="M5,6 H19 V18 H5 Z" Stroke="{StaticResource IconBrush}"
-                  StrokeThickness="2" Fill="Transparent" Width="19" Height="19" Stretch="Uniform"/>
+                        Click="ToolRect_Click" ToolTip="Path drawing tool (R) — drag for rectangle/ellipse/triangle, or click points for Polygon">
+            <Grid Width="22" Height="22">
+              <Rectangle Width="11" Height="11" RadiusX="2" RadiusY="2"
+                         Stroke="{StaticResource IconBrush}" StrokeThickness="2.3"
+                         StrokeLineJoin="Round"
+                         Fill="{StaticResource IconBrush}" HorizontalAlignment="Left" VerticalAlignment="Top"
+                         Margin="0,0,0,0"/>
+              <Ellipse Width="10" Height="10" Stroke="{StaticResource IconBrush}"
+                       StrokeThickness="2.3" Fill="#26E6EEF6"
+                       HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,0"/>
+            </Grid>
           </ToggleButton>
           <!-- text tool -->
           <ToggleButton x:Name="SideTextBtn" Style="{StaticResource SideTool}"
-                        Click="ToolText_Click" ToolTip="Text (T) — click the canvas and type; RTL supported">
+                        Click="ToolText_Click" ToolTip="Text (T) - click the canvas and type; RTL supported">
             <Path Data="M4,5 H20 M12,5 V20" Stroke="{StaticResource IconBrush}"
                   StrokeThickness="2" Fill="Transparent" Width="20" Height="20" Stretch="Uniform"/>
           </ToggleButton>
-
-          <Border Style="{StaticResource RailDivider}"/>
-          <!-- undo / redo -->
-          <Button x:Name="BtnUndo" Style="{StaticResource SideBtn}" Click="Undo_Click" ToolTip="Undo (Ctrl+Z)">
-            <Path Data="M9,14 L4,9 L9,4 M4,9 H15 a6,6 0 0,1 0,12 H11" Stroke="{StaticResource IconBrush}"
-                  StrokeThickness="1.8" Fill="Transparent" Width="19" Height="19" Stretch="Uniform"/>
-          </Button>
-          <Button x:Name="BtnRedo" Style="{StaticResource SideBtn}" Click="Redo_Click" ToolTip="Redo (Ctrl+Y)">
-            <Path Data="M15,14 L20,9 L15,4 M20,9 H9 a6,6 0 0,0 0,12 H13" Stroke="{StaticResource IconBrush}"
-                  StrokeThickness="1.8" Fill="Transparent" Width="19" Height="19" Stretch="Uniform"/>
-          </Button>
-          <!-- fa-copy : duplicate -->
-          <Button Style="{StaticResource SideBtn}" Click="Duplicate_Click" ToolTip="Duplicate (Ctrl+D)">
-            <Path Data="M9,9 H20 V20 H9 Z M4,4 H15 V15" Stroke="{StaticResource IconBrush}"
-                  StrokeThickness="1.8" Fill="Transparent" Width="19" Height="19" Stretch="Uniform"/>
-          </Button>
-          <!-- fa-trash-can : delete (respects slice) -->
-          <Button Style="{StaticResource SideBtn}" Click="Delete_Click" ToolTip="Delete (Del) — cuts the slice area out of the selection">
-            <Path Data="M6,7 H18 M10,7 V5 H14 V7 M7,7 L8,20 H16 L17,7 M10.5,11 V16 M13.5,11 V16"
-                  Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
-                  Width="19" Height="19" Stretch="Uniform"/>
-          </Button>
-        </StackPanel>
-
-        <StackPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,0,0,10">
-          <Border Style="{StaticResource RailDivider}"/>
-          <!-- eyedropper : sits right above the working-color well -->
-          <ToggleButton x:Name="SideEyeBtn" Style="{StaticResource SideTool}"
-                        Click="ToolEye_Click" ToolTip="Eyedropper (I) — sample a color anywhere, sets the project primary">
-            <Grid Width="22" Height="22">
-              <Path Data="M3.6,20.4 L13.2,10.8" Stroke="#8ED0FF" StrokeThickness="4.4"
-                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-              <Path Data="M13.2,8.0 L16.8,11.6" Stroke="#AEBCCC" StrokeThickness="2.6"
-                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-              <Ellipse Width="7.6" Height="7.6" HorizontalAlignment="Left" VerticalAlignment="Top"
-                       Margin="12.8,1.0,0,0" Fill="#E6EEF6"/>
-            </Grid>
-          </ToggleButton>
-          <Button x:Name="InkSwatch" Style="{StaticResource SideBtn}" Height="26" Background="#3B82F6"
-                  Click="InkSwatch_Click" ToolTip="Working color — click to open the picker (also applies to the selected shape)"/>
-          <Border Style="{StaticResource RailDivider}"/>
-          <!-- fa-magnifying-glass-plus -->
-          <Button Style="{StaticResource SideBtn}" Click="ZoomIn_Click" ToolTip="Zoom in (+)">
-            <Grid Width="20" Height="20">
-              <Ellipse Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top"
-                       Margin="1,1,0,0" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
-              <Path Data="M11,11 L18,18" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
-              <Path Data="M5,7.5 H10.5 M7.75,5 V10" Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"/>
-            </Grid>
-          </Button>
-          <!-- fa-magnifying-glass-minus -->
-          <Button Style="{StaticResource SideBtn}" Click="ZoomOut_Click" ToolTip="Zoom out (−)">
-            <Grid Width="20" Height="20">
-              <Ellipse Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top"
-                       Margin="1,1,0,0" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
-              <Path Data="M11,11 L18,18" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
-              <Path Data="M5,7.5 H10.5" Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"/>
-            </Grid>
-          </Button>
         </StackPanel>
       </DockPanel>
     </Border>
@@ -1022,8 +1804,28 @@
     <!-- ================= RIGHT INSPECTOR ================= -->
     <Border x:Name="InspectorBorder" DockPanel.Dock="Right" Width="260" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="1,0,0,0">
       <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
-        <StackPanel x:Name="InspectorPanel">
-          <TextBlock Text="INSPECTOR" Style="{StaticResource SectionHeader}" Margin="2,2,2,8"/>
+        <StackPanel>
+          <Border Background="#0B121B" BorderBrush="#1A2636" BorderThickness="1"
+                  CornerRadius="5" Padding="2" Margin="0,0,0,9">
+            <UniformGrid x:Name="RightTabs" Columns="2">
+              <ToggleButton x:Name="InspectorTabBtn" Style="{StaticResource RightTabBtn}"
+                            Content="Inspector" IsChecked="True" Click="InspectorTab_Click"/>
+              <ToggleButton x:Name="PhotoTabBtn" Style="{StaticResource RightTabBtn}"
+                            Content="Photo" IsEnabled="False" Click="PhotoTab_Click"/>
+              <ToggleButton x:Name="GridTabBtn" Style="{StaticResource RightTabBtn}"
+                            Content="Grid" Visibility="Collapsed" Click="GridTab_Click"/>
+            </UniformGrid>
+          </Border>
+          <Border x:Name="MultiSelectionCard" Visibility="Collapsed"
+                  Background="#111A27" BorderBrush="#223248" BorderThickness="1"
+                  CornerRadius="5" Padding="11" Margin="0,0,0,9">
+            <StackPanel>
+              <TextBlock x:Name="MultiSelectionText" Style="{StaticResource SectionHeader}"/>
+              <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
+                         Text="Drag a selected object to move the group. Shift = snap, arrow keys nudge, Delete removes all."/>
+            </StackPanel>
+          </Border>
+          <StackPanel x:Name="InspectorPanel">
           <Border Background="#111A27" CornerRadius="5" Padding="11" x:Name="GeometryCard">
             <StackPanel>
               <TextBlock Text="GEOMETRY" Style="{StaticResource SectionHeader}"/>
@@ -1043,6 +1845,7 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="8"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="26"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="W" ToolTip="Width" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
                 <controls:ValueSlider Grid.Column="1" Compact="True" Decimals="0" x:Name="InspW" Suffix="px"
@@ -1050,6 +1853,20 @@
                 <TextBlock Grid.Column="3" Text="H" ToolTip="Height" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
                 <controls:ValueSlider Grid.Column="4" Compact="True" Decimals="0" x:Name="InspH" Suffix="px"
                                       Minimum="1" Maximum="8000" ValueChanged="InspH_ValueChanged"/>
+                <ToggleButton x:Name="InspRatioLockBtn" Grid.Column="5" Style="{StaticResource SegBtn}"
+                              Width="24" Height="24" Margin="3,0,0,0" Click="InspRatioLock_Click"
+                              ToolTip="Lock aspect ratio (synced with the Pick tool)">
+                  <Grid Width="14" Height="14">
+                    <Path x:Name="InspRatioUnlockIcon"
+                          Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                          Fill="Transparent" StrokeLineJoin="Round"/>
+                    <Path x:Name="InspRatioLockIcon" Visibility="Collapsed"
+                          Data="M6,9 H14 V15 H6 Z M8,9 V6 A2,2 0 0 1 12,6 V9"
+                          Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                          Fill="Transparent" StrokeLineJoin="Round"/>
+                  </Grid>
+                </ToggleButton>
               </Grid>
               <Grid x:Name="InspCornerRow" Margin="0,2,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -1057,6 +1874,27 @@
                 <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="InspRadius" Suffix="px"
                                       Minimum="0" Maximum="250" ValueChanged="InspRadius_ValueChanged"/>
               </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0"
+                  x:Name="ImageCard" Visibility="Collapsed">
+            <StackPanel>
+              <TextBlock Text="IMAGE" Style="{StaticResource SectionHeader}"/>
+              <TextBlock Text="Resize mode" Style="{StaticResource FieldLabel}"/>
+              <Border Style="{StaticResource SegGroup}" Margin="0,2,0,0">
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="ImageFitFillRadio" GroupName="ImageFit" Style="{StaticResource SegRadio}"
+                               Content="Crop" Tag="Fill" Checked="ImageFit_Checked"
+                               ToolTip="Fill the box and crop the image (keeps proportions)"/>
+                  <RadioButton x:Name="ImageFitFitRadio" GroupName="ImageFit" Style="{StaticResource SegRadio}"
+                               Content="Fit" Tag="Fit" Checked="ImageFit_Checked"
+                               ToolTip="Show the whole image with empty space around it"/>
+                  <RadioButton x:Name="ImageFitStretchRadio" GroupName="ImageFit" Style="{StaticResource SegRadio}"
+                               Content="Stretch" Tag="Stretch" Checked="ImageFit_Checked"
+                               ToolTip="Stretch the image to the box (changes proportions)"/>
+                </StackPanel>
+              </Border>
             </StackPanel>
           </Border>
 
@@ -1111,10 +1949,39 @@
                   <ComboBoxItem Content="Radial"/>
                   <ComboBoxItem Content="Elliptical"/>
                 </ComboBox>
-                <Grid x:Name="GradAngleRow" Margin="0,0,0,6">
+                <Grid x:Name="GradAngleRow" Margin="0,4,0,6">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="Angle" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Decimals="0" Grid.Column="1" x:Name="InspGradAngle" Suffix="°"
+                  <TextBlock Text="Direction" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
+                  <Border Grid.Column="1" Style="{StaticResource SegGroup}" Padding="2" HorizontalAlignment="Left">
+                    <UniformGrid x:Name="ShapeGradDirections" Rows="3" Columns="3">
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="315" Content="↖" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="0" Content="↑" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="45" Content="↗" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="270" Content="←" Click="ShapeGradientDirection_Click"/>
+                      <Border Background="Transparent"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="90" Content="→" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="225" Content="↙" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="180" Content="↓" Click="ShapeGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="135" Content="↘" Click="ShapeGradientDirection_Click"/>
+                    </UniformGrid>
+                  </Border>
+                  <controls:ValueSlider Grid.Column="1" Visibility="Collapsed" Decimals="0" x:Name="InspGradAngle" Suffix="°"
                                         Minimum="0" Maximum="360" ValueChanged="InspGradAngle_ValueChanged"/>
                 </Grid>
               </StackPanel>
@@ -1245,8 +2112,37 @@
                 </Grid>
                 <Grid Margin="0,0,0,6">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="Angle" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="TextGradAngle" Suffix="°"
+                  <TextBlock Text="Direction" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
+                  <Border Grid.Column="1" Style="{StaticResource SegGroup}" Padding="2" HorizontalAlignment="Left">
+                    <UniformGrid x:Name="TextGradDirections" Rows="3" Columns="3">
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="315" Content="↖" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="0" Content="↑" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="45" Content="↗" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="270" Content="←" Click="TextGradientDirection_Click"/>
+                      <Border Background="Transparent"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="90" Content="→" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="225" Content="↙" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="180" Content="↓" Click="TextGradientDirection_Click"/>
+                      <ToggleButton Style="{StaticResource SegBtn}" Width="22" Height="22" Margin="1"
+                                    FontFamily="Segoe UI Symbol" FontSize="13"
+                                    Tag="135" Content="↘" Click="TextGradientDirection_Click"/>
+                    </UniformGrid>
+                  </Border>
+                  <controls:ValueSlider Grid.Column="1" Visibility="Collapsed" Decimals="0" x:Name="TextGradAngle" Suffix="°"
                                         Minimum="0" Maximum="360" ValueChanged="TextGradAngle_ValueChanged"/>
                 </Grid>
               </StackPanel>
@@ -1262,34 +2158,36 @@
                           Checked="OpacityGradient_Toggled" Unchecked="OpacityGradient_Toggled"/>
                 <StackPanel x:Name="OpacityOptions" Visibility="Collapsed" Margin="0,8,0,0">
                   <TextBlock Text="Direction" Style="{StaticResource FieldLabel}"/>
-                  <ComboBox x:Name="OpacityDirectionCombo" Style="{StaticResource DarkCombo}" SelectionChanged="OpacityDirection_SelectionChanged">
-                    <ComboBoxItem Content="Top → Bottom"/>
-                    <ComboBoxItem Content="Bottom → Top"/>
-                    <ComboBoxItem Content="Left → Right"/>
-                    <ComboBoxItem Content="Right → Left"/>
-                    <ComboBoxItem Content="Top-Left → Bottom-Right"/>
-                    <ComboBoxItem Content="Top-Right → Bottom-Left"/>
-                    <ComboBoxItem Content="Bottom-Left → Top-Right"/>
-                    <ComboBoxItem Content="Bottom-Right → Top-Left"/>
-                  </ComboBox>
-                  <Grid Margin="0,0,0,6">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                    <TextBlock Text="Strength" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                    <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="OpacityStrength" Suffix="%"
-                                          Minimum="0" Maximum="100" ValueChanged="OpacityStrength_ValueChanged"/>
-                  </Grid>
-                  <Grid Margin="0,0,0,6">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                    <TextBlock Text="Start" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                    <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="OpacityStart" Suffix="%"
-                                          Minimum="0" Maximum="100" ValueChanged="OpacityStart_ValueChanged"/>
-                  </Grid>
-                  <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                    <TextBlock Text="End" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                    <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="OpacityEnd" Suffix="%"
-                                          Minimum="0" Maximum="100" ValueChanged="OpacityEnd_ValueChanged"/>
-                  </Grid>
+                  <ItemsControl x:Name="TransparencyPresetList" Margin="0,2,0,4">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Columns="4"/>
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Button Style="{StaticResource ShadowPresetTile}" Tag="{Binding}"
+                                Click="TransparencyPresetItem_Click" ToolTip="{Binding ToolTip}">
+                          <StackPanel>
+                            <Border Width="30" Height="22" Background="{Binding PreviewBrush}"
+                                    CornerRadius="3" BorderBrush="#223248" BorderThickness="1"
+                                    HorizontalAlignment="Center" Margin="0,2"/>
+                            <TextBlock Text="{Binding Name}" FontSize="9" Foreground="#C7D6E6"
+                                       TextAlignment="Center"/>
+                          </StackPanel>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <controls:ValueSlider Inline="True" Caption="Strength" x:Name="OpacityStrength" Suffix="%"
+                                        Decimals="0" Minimum="0" Maximum="100"
+                                        Margin="0,0,0,7" ValueChanged="OpacityStrength_ValueChanged"/>
+                  <controls:ValueSlider Inline="True" Caption="Start" x:Name="OpacityStart" Suffix="%"
+                                        Decimals="0" Minimum="0" Maximum="100"
+                                        Margin="0,0,0,7" ValueChanged="OpacityStart_ValueChanged"/>
+                  <controls:ValueSlider Inline="True" Caption="End" x:Name="OpacityEnd" Suffix="%"
+                                        Decimals="0" Minimum="0" Maximum="100"
+                                        ValueChanged="OpacityEnd_ValueChanged"/>
                 </StackPanel>
               </StackPanel>
             </StackPanel>
@@ -1335,13 +2233,13 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
                     <TextBlock Text="X" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
                     <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="TextShadowX" Suffix="px"
-                                          Minimum="-100" Maximum="100" ValueChanged="TextShadowX_ValueChanged"/>
+                                          Minimum="-40" Maximum="40" ValueChanged="TextShadowX_ValueChanged"/>
                   </Grid>
                   <Grid Margin="0,0,0,7">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
                     <TextBlock Text="Y" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
                     <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="TextShadowY" Suffix="px"
-                                          Minimum="-100" Maximum="100" ValueChanged="TextShadowY_ValueChanged"/>
+                                          Minimum="-40" Maximum="40" ValueChanged="TextShadowY_ValueChanged"/>
                   </Grid>
                   <Grid Margin="0,0,0,7">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -1364,17 +2262,33 @@
           <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="ShadowCard">
             <StackPanel>
               <TextBlock Text="SHADOW" Style="{StaticResource SectionHeader}"/>
-              <ComboBox x:Name="ShadowTypeCombo" Style="{StaticResource DarkCombo}" SelectionChanged="ShadowType_SelectionChanged">
-                <ComboBoxItem Content="None"/>
-                <ComboBoxItem Content="Soft"/>
-                <ComboBoxItem Content="Medium"/>
-                <ComboBoxItem Content="Hard"/>
-                <ComboBoxItem Content="Long"/>
-                <ComboBoxItem Content="Glow"/>
-                <ComboBoxItem Content="Custom"/>
-              </ComboBox>
+              <ItemsControl x:Name="ShadowPresetList" Margin="0,2,0,4">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <UniformGrid Columns="3"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Style="{StaticResource ShadowPresetTile}" Tag="{Binding}"
+                            Click="ShadowPresetItem_Click" ToolTip="{Binding Name}">
+                      <StackPanel>
+                        <Grid Height="46">
+                          <Border Width="56" Height="40" Background="#223248" CornerRadius="4"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8">
+                            <Border Background="#F2F5F9" CornerRadius="4"
+                                    Effect="{Binding PreviewEffect}"/>
+                          </Border>
+                        </Grid>
+                        <TextBlock Text="{Binding Name}" FontSize="9" Foreground="#C7D6E6"
+                                   TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
 
-              <StackPanel x:Name="ShadowOptions" Margin="0,6,0,0">
+              <StackPanel x:Name="ShadowOptions" Margin="0,4,0,0">
                 <TextBlock Text="Color" Style="{StaticResource FieldLabel}"/>
                 <Grid Margin="0,0,0,6">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -1382,30 +2296,18 @@
                   <TextBox x:Name="ShadowText" Grid.Column="2" Style="{StaticResource DarkBox}" Margin="0" Tag="Shadow" TextChanged="FillText_TextChanged" ToolTip="Hex, e.g. #000000"/>
                 </Grid>
 
-                <Grid Margin="0,0,0,7">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="X" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="ShadowX" Suffix="px"
-                                        Minimum="-100" Maximum="100" ValueChanged="ShadowX_ValueChanged"/>
-                </Grid>
-                <Grid Margin="0,0,0,7">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="Y" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="ShadowY" Suffix="px"
-                                        Minimum="-100" Maximum="100" ValueChanged="ShadowY_ValueChanged"/>
-                </Grid>
-                <Grid Margin="0,0,0,7">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="Blur" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="ShadowBlur" Suffix="px"
-                                        Minimum="0" Maximum="200" ValueChanged="ShadowBlur_ValueChanged"/>
-                </Grid>
-                <Grid>
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                  <TextBlock Text="Opacity" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
-                  <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="ShadowOpacity" Suffix="%"
-                                        Minimum="0" Maximum="100" ValueChanged="ShadowOpacity_ValueChanged"/>
-                </Grid>
+                <controls:ValueSlider Inline="True" Caption="X" x:Name="ShadowX" Suffix="px"
+                                      Decimals="0" Minimum="-40" Maximum="40"
+                                      Margin="0,0,0,7" ValueChanged="ShadowX_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Y" x:Name="ShadowY" Suffix="px"
+                                      Decimals="0" Minimum="-40" Maximum="40"
+                                      Margin="0,0,0,7" ValueChanged="ShadowY_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Blur" x:Name="ShadowBlur" Suffix="px"
+                                      Decimals="0" Minimum="0" Maximum="200"
+                                      Margin="0,0,0,7" ValueChanged="ShadowBlur_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Opacity" x:Name="ShadowOpacity" Suffix="%"
+                                      Decimals="0" Minimum="0" Maximum="100"
+                                      ValueChanged="ShadowOpacity_ValueChanged"/>
               </StackPanel>
             </StackPanel>
           </Border>
@@ -1414,11 +2316,234 @@
             <StackPanel>
               <TextBlock Text="WORKFLOW" Style="{StaticResource SectionHeader}"/>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
-                         Text="Pick (V): select/move/resize; rotate with the Rotation slider or the ↺ ↻ buttons. Slice (M): drag regions, click activates; Delete cuts; Space toggles markers; arrows nudge. Ctrl+F fill, Ctrl+Z/Y undo/redo."/>
+                         Text="Pick (V): select/move/resize; rotate with the Rotation slider or the ↺ ↻ buttons. Slice (M): drag regions, click activates; Delete cuts; Space toggles markers; arrows nudge. Ctrl+F fill/text/canvas color, Ctrl+Z/Y undo/redo."/>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17" Margin="0,8,0,0"
                          Text="Paste images with Ctrl+V or drag files in. − / + (both keyboards) or Ctrl+wheel zooms. Space clears the selection — click the element to select it again."/>
             </StackPanel>
           </Border>
+        </StackPanel>
+
+          <StackPanel x:Name="PhotoPanel" Visibility="Collapsed">
+            <TextBlock Text="PHOTO" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
+            <TextBlock x:Name="PhotoEmptyText" Text="Select an image on the canvas to edit it."
+                       TextWrapping="Wrap" FontSize="10.5" Foreground="{StaticResource MutedBrush}"
+                       Margin="2,4,2,0" Visibility="Collapsed"/>
+            <StackPanel x:Name="PhotoContent">
+              <Border Background="#111A27" CornerRadius="5" Padding="8">
+                <StackPanel>
+                  <Border Height="64" Background="#04070D" CornerRadius="3" ClipToBounds="True">
+                    <Viewbox Stretch="Fill">
+                      <Canvas Width="220" Height="64">
+                        <Polyline x:Name="PhotoHistR" Stroke="#FF6B6B" StrokeThickness="1" Opacity="0.9"/>
+                        <Polyline x:Name="PhotoHistG" Stroke="#65D38A" StrokeThickness="1" Opacity="0.9"/>
+                        <Polyline x:Name="PhotoHistB" Stroke="#5CA8FF" StrokeThickness="1" Opacity="0.9"/>
+                      </Canvas>
+                    </Viewbox>
+                  </Border>
+                  <TextBlock x:Name="PhotoMetaText" FontSize="10" Foreground="{StaticResource MutedBrush}"
+                             Margin="1,6,1,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <StackPanel>
+                  <TextBlock Text="EDIT" Style="{StaticResource SectionHeader}"/>
+                  <UniformGrid Columns="4">
+                    <Button Content="Auto" Style="{StaticResource AttrBtn}" Background="#0B121B"
+                            BorderBrush="#223248" BorderThickness="1" Click="PhotoQuickAuto_Click"/>
+                    <Button Content="B&amp;W" Style="{StaticResource AttrBtn}" Background="#0B121B"
+                            BorderBrush="#223248" BorderThickness="1" Click="PhotoQuickBw_Click"/>
+                    <Button Content="HDR" Style="{StaticResource AttrBtn}" Background="#0B121B"
+                            BorderBrush="#223248" BorderThickness="1" Click="PhotoQuickHdr_Click"/>
+                    <Button Content="Reset" Style="{StaticResource AttrBtn}" Background="#0B121B"
+                            BorderBrush="#223248" BorderThickness="1" Click="PhotoReset_Click"/>
+                  </UniformGrid>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <StackPanel>
+                  <ToggleButton x:Name="PhotoPresetsToggle" Style="{StaticResource ExtraHeader}"
+                                Content="PRESETS" IsChecked="True" Click="PhotoSection_Click" Tag="Presets"/>
+                  <StackPanel x:Name="PhotoPresetsContent" Margin="0,8,0,0">
+                    <ItemsControl x:Name="PhotoPresetList">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Columns="2"/>
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Button Style="{StaticResource PhotoPresetTile}" Tag="{Binding}" Click="PhotoPreset_Click"
+                                  ToolTip="{Binding Name}">
+                            <StackPanel>
+                              <Border Height="62" Background="#04070D" CornerRadius="3" ClipToBounds="True">
+                                <Image Source="{Binding Preview}" Stretch="UniformToFill"/>
+                              </Border>
+                              <TextBlock Text="{Binding Name}" FontSize="9.5" Foreground="#C7D6E6"
+                                         TextAlignment="Center" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,4,0,0">
+                <StackPanel>
+                  <ToggleButton x:Name="PhotoLightToggle" Style="{StaticResource ExtraHeader}"
+                                Content="LIGHT" IsChecked="True" Click="PhotoSection_Click" Tag="Light"/>
+                  <StackPanel x:Name="PhotoLightContent" Margin="0,9,0,0">
+                    <controls:ValueSlider Inline="True" Caption="Exposure" x:Name="PhotoExposure" Tag="Exposure"
+                                          Decimals="2" Step="0.05" Suffix="EV" Minimum="-5" Maximum="5"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Contrast" x:Name="PhotoContrast" Tag="Contrast"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Highlights" x:Name="PhotoHighlights" Tag="Highlights"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Shadows" x:Name="PhotoShadows" Tag="Shadows"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Whites" x:Name="PhotoWhites" Tag="Whites"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Blacks" x:Name="PhotoBlacks" Tag="Blacks"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          ValueChanged="PhotoAdjust_ValueChanged"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <StackPanel>
+                  <ToggleButton x:Name="PhotoColorToggle" Style="{StaticResource ExtraHeader}"
+                                Content="COLOR" Click="PhotoSection_Click" Tag="Color"/>
+                  <StackPanel x:Name="PhotoColorContent" Margin="0,9,0,0" Visibility="Collapsed">
+                    <controls:ValueSlider Inline="True" Caption="Temperature" x:Name="PhotoTemperature" Tag="Temperature"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          TrackBrush="{StaticResource PhotoTemperatureTrack}"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Tint" x:Name="PhotoTint" Tag="Tint"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          TrackBrush="{StaticResource PhotoTintTrack}"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Vibrance" x:Name="PhotoVibrance" Tag="Vibrance"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Saturation" x:Name="PhotoSaturation" Tag="Saturation"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          ValueChanged="PhotoAdjust_ValueChanged"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <StackPanel>
+                  <ToggleButton x:Name="PhotoToneToggle" Style="{StaticResource ExtraHeader}"
+                                Content="TONE" Click="PhotoSection_Click" Tag="Tone"/>
+                  <StackPanel x:Name="PhotoToneContent" Margin="0,9,0,0" Visibility="Collapsed">
+                    <Grid Margin="0,0,0,6">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="8"/><ColumnDefinition/>
+                      </Grid.ColumnDefinitions>
+                      <Button x:Name="PhotoToneColorBox" Style="{StaticResource AttrSwatch}"
+                              Width="30" Height="26" Click="PhotoToneColor_Click"
+                              ToolTip="Pick the tone color"/>
+                      <controls:ValueSlider Grid.Column="2" Inline="True" Caption="Amount"
+                                            x:Name="PhotoToneAmount" Tag="ToneAmount"
+                                            Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                            ValueChanged="PhotoAdjust_ValueChanged"/>
+                    </Grid>
+                    <TextBlock TextWrapping="Wrap" FontSize="10" Foreground="{StaticResource MutedBrush}"
+                               Text="Maps the image to shades of the chosen color — orange, purple, teal or any other tone."/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <StackPanel>
+                  <ToggleButton x:Name="PhotoEffectsToggle" Style="{StaticResource ExtraHeader}"
+                                Content="EFFECTS" Click="PhotoSection_Click" Tag="Effects"/>
+                  <StackPanel x:Name="PhotoEffectsContent" Margin="0,9,0,0" Visibility="Collapsed">
+                    <controls:ValueSlider Inline="True" Caption="Blur" x:Name="PhotoBlur" Tag="Blur"
+                                          Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Sharpen" x:Name="PhotoSharpen" Tag="Sharpen"
+                                          Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Glow" x:Name="PhotoGlow" Tag="Glow"
+                                          Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Clarity" x:Name="PhotoClarity" Tag="Clarity"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Vignette" x:Name="PhotoVignette" Tag="Vignette"
+                                          Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
+                                          Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
+                    <controls:ValueSlider Inline="True" Caption="Grain" x:Name="PhotoGrain" Tag="Grain"
+                                          Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                          ValueChanged="PhotoAdjust_ValueChanged"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+                <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
+                           Text="Photo edits are non-destructive: the original pixels stay intact, presets can be changed or reset at any time, and exports use the adjusted result."/>
+              </Border>
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel x:Name="GridPanel" Visibility="Collapsed">
+            <TextBlock Text="CANVAS" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
+            <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,0,0,8">
+              <StackPanel>
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="8"/><ColumnDefinition/>
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Background" Foreground="{StaticResource MutedBrush}" FontSize="10"
+                             VerticalAlignment="Center"/>
+                  <Button x:Name="CanvasBgSwatchBtn" Grid.Column="2" Style="{StaticResource AttrSwatch}"
+                          HorizontalAlignment="Left" Click="CanvasBgSwatch_Click"
+                          ToolTip="Canvas background color"/>
+                </Grid>
+                <CheckBox x:Name="CanvasTransparentCheck" Style="{StaticResource DarkSwitch}"
+                          Content="Transparent background"
+                          Checked="CanvasTransparent_Toggled" Unchecked="CanvasTransparent_Toggled"/>
+              </StackPanel>
+            </Border>
+            <TextBlock Text="GRID" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
+            <Border Background="#111A27" CornerRadius="5" Padding="11">
+              <StackPanel>
+                <CheckBox x:Name="GridShowCheck" Style="{StaticResource DarkSwitch}"
+                          Content="Show grid" Checked="GridShow_Toggled" Unchecked="GridShow_Toggled"/>
+                <CheckBox x:Name="GridCenterCheck" Style="{StaticResource DarkSwitch}"
+                          Content="Center line" Margin="0,10,0,12"
+                          Checked="GridCenter_Toggled" Unchecked="GridCenter_Toggled"/>
+                <controls:ValueSlider Inline="True" Caption="Columns" x:Name="GridColumns"
+                                      Decimals="0" Step="1" Minimum="2" Maximum="24"
+                                      Margin="0,0,0,7" ValueChanged="GridColumns_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Margin" x:Name="GridMargin"
+                                      Decimals="0" Suffix="px" Minimum="0" Maximum="400"
+                                      Margin="0,0,0,7" ValueChanged="GridMargin_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Gutter" x:Name="GridGutter"
+                                      Decimals="0" Suffix="px" Minimum="0" Maximum="200"
+                                      Margin="0,0,0,7" ValueChanged="GridGutter_ValueChanged"/>
+                <controls:ValueSlider Inline="True" Caption="Opacity" x:Name="GridOpacity"
+                                      Decimals="0" Suffix="%" Minimum="0" Maximum="100"
+                                      ValueChanged="GridOpacity_ValueChanged"/>
+              </StackPanel>
+            </Border>
+            <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
+                         Text="Grid settings are visual only. Shift-drag snaps objects to the visible column lines."/>
+            </Border>
+          </StackPanel>
         </StackPanel>
       </ScrollViewer>
     </Border>
@@ -1439,7 +2564,8 @@
     </Thumb>
 
     <!-- ================= VIEWPORT ================= -->
-    <ScrollViewer x:Name="Viewport" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+    <Grid>
+      <ScrollViewer x:Name="Viewport" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                   Background="#090D15" Focusable="True"
                   SizeChanged="Viewport_SizeChanged"
                   PreviewMouseWheel="Viewport_PreviewMouseWheel">
@@ -1452,10 +2578,45 @@
               MouseLeftButtonDown="Pasteboard_MouseDown"
               MouseMove="Pasteboard_MouseMove"
               MouseLeftButtonUp="Pasteboard_MouseUp"
+              MouseLeave="Pasteboard_MouseLeave"
+              ContextMenuOpening="Pasteboard_ContextMenuOpening"
               AllowDrop="True" Drop="Pasteboard_Drop" DragOver="Pasteboard_DragOver">
         <Canvas.ContextMenu>
           <ContextMenu>
-            <MenuItem Header="Background color…" Click="CanvasBgColor_Click">
+            <MenuItem x:Name="SaveElementTransparentMenuItem"
+                      Header="Save object as image…"
+                      Click="SaveElementTransparent_Click" Visibility="Collapsed">
+              <MenuItem.Icon>
+                <Path Data="M12,3 V11 M8.5,7.5 L12,11 L15.5,7.5 M5,15 H19 M5,15 V19 H19 V15"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+            </MenuItem>
+            <Separator x:Name="ElementMenuSeparator" Visibility="Collapsed"/>
+            <MenuItem x:Name="CopyStyleMenuItem" Header="Copy style"
+                      Click="CopyStyle_Click" Visibility="Collapsed">
+              <MenuItem.Icon>
+                <Path Data="M8,8 H18 V18 H8 Z M6,6 H16 V8 M6,6 V16 H8"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="PasteStyleMenuItem" Header="Paste style"
+                      Click="PasteStyle_Click" Visibility="Collapsed">
+              <MenuItem.Icon>
+                <Path Data="M8,5 H16 V19 H8 Z M10,5 V3 H14 V5 M10,10 H14 M10,13 H14"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="ProjectSettingsMenuItem" Header="Project settings…" Click="ProjectSettings_Click">
+              <MenuItem.Icon>
+                <Path Data="M4,4 H12 M4,4 V12 M20,20 H12 M20,20 V12"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="CanvasBgColorMenuItem" Header="Background color…" Click="CanvasBgColor_Click">
               <MenuItem.Icon>
                 <Border Width="13" Height="13" CornerRadius="2" BorderThickness="1" BorderBrush="#223248">
                   <Border.Background>
@@ -1516,6 +2677,19 @@
           </ItemsControl.ItemsPanel>
         </ItemsControl>
 
+        <controls:GuideOverlay x:Name="GuideOverlay"
+                               Width="{Binding PasteboardWidth}" Height="{Binding PasteboardHeight}"
+                               ArtboardX="{Binding ArtboardX}" ArtboardY="{Binding ArtboardY}"
+                               ArtboardWidth="{Binding ArtboardWidth}" ArtboardHeight="{Binding ArtboardHeight}"
+                               Selected="{Binding Selected}"
+                               Visibility="Collapsed" IsHitTestVisible="False"/>
+
+        <!-- Snap guides (Shift while dragging) -->
+        <Line x:Name="SnapGuideV" Stroke="#FFB020" StrokeThickness="1" Visibility="Collapsed"
+              IsHitTestVisible="False"/>
+        <Line x:Name="SnapGuideH" Stroke="#FFB020" StrokeThickness="1" Visibility="Collapsed"
+              IsHitTestVisible="False"/>
+
         <controls:SelectionOverlay x:Name="SelectionAdorner"
                                    Width="{Binding PasteboardWidth}" Height="{Binding PasteboardHeight}"
                                    IsHitTestVisible="False"/>
@@ -1525,17 +2699,55 @@
                 Width="{Binding PasteboardWidth}" Height="{Binding PasteboardHeight}"
                 IsHitTestVisible="False"/>
 
+        <Rectangle x:Name="MarqueeVisual" Visibility="Collapsed" IsHitTestVisible="False"
+                   Fill="#1A2E9BFF" Stroke="#2E9BFF" StrokeThickness="1" StrokeDashArray="4 3"/>
+
         <!-- Draw preview: the real shape (fill, border, corner radius) while dragging -->
-        <Rectangle x:Name="DrawRectVisual" Visibility="Collapsed"
-                   Stroke="#1E6FBF" StrokeThickness="2"
-                   Fill="#2E9BFF" RadiusX="14" RadiusY="14"
-                   IsHitTestVisible="False">
-          <Rectangle.Clip>
-            <RectangleGeometry Rect="{Binding ArtboardRect}"/>
-          </Rectangle.Clip>
-        </Rectangle>
+        <Path x:Name="DrawShapeVisual" Visibility="Collapsed"
+              Stroke="#1E6FBF" StrokeThickness="2" StrokeLineJoin="Round"
+              Fill="#2E9BFF" IsHitTestVisible="False"/>
+        <Path x:Name="PolygonDraftLine" Visibility="Collapsed"
+              Stroke="#2E9BFF" StrokeThickness="1.5" StrokeDashArray="4 3"
+              Fill="Transparent" IsHitTestVisible="False"/>
+        <Path x:Name="PolygonDraftPoints" Visibility="Collapsed"
+              Fill="#2E9BFF" Stroke="White" StrokeThickness="1" IsHitTestVisible="False"/>
+
+        <!-- Paintbrush cursor: a ring at the exact brush size -->
+        <Ellipse x:Name="BrushCursor" Visibility="Collapsed"
+                 Stroke="#2E9BFF" StrokeThickness="1" Fill="Transparent"
+                 IsHitTestVisible="False"/>
       </Canvas>
       </Canvas>
     </ScrollViewer>
+
+      <Border x:Name="EmptyState" Visibility="Collapsed" Background="#E6080A11"
+              AllowDrop="True" DragOver="EmptyState_DragOver" Drop="EmptyState_Drop">
+        <Border Width="390" Padding="26,24" CornerRadius="10"
+                Background="#111A27" BorderBrush="#223248" BorderThickness="1"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+          <StackPanel>
+            <Border Width="44" Height="44" CornerRadius="10" Background="{StaticResource AccentBrush}"
+                    HorizontalAlignment="Center">
+              <Path Data="M6,4 H18 V20 H6 Z M9,8 H15 M9,12 H15 M9,16 H13"
+                    Stroke="White" StrokeThickness="1.5" Fill="Transparent"
+                    Width="20" Height="20" Stretch="Uniform"/>
+            </Border>
+            <TextBlock Text="No project open" FontSize="18" FontWeight="Bold"
+                       Foreground="#E6EEF6" HorizontalAlignment="Center" Margin="0,14,0,4"/>
+            <TextBlock Text="Create a new project, open a project, or paste / drop an image or .yimpact file."
+                       Foreground="#8EA0B4" FontSize="11.5" TextWrapping="Wrap"
+                       TextAlignment="Center" HorizontalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+              <Button Style="{StaticResource EmptyPrimaryBtn}" Content="New project"
+                      Click="NewCanvas_Click"/>
+              <Button Style="{StaticResource EmptySecondaryBtn}" Content="Open project"
+                      Click="OpenProject_Click" Margin="10,0,0,0"/>
+            </StackPanel>
+            <TextBlock Text="Tip: Ctrl+V pastes an image, or drop images and .yimpact projects here."
+                       Foreground="#6F8094" FontSize="10" TextAlignment="Center" Margin="0,16,0,0"/>
+          </StackPanel>
+        </Border>
+      </Border>
+    </Grid>
   </DockPanel>
 </Window>

@@ -28,6 +28,7 @@ public class DesignDocument : INotifyPropertyChanged
     private double _pasteboardHeight = 2000;
 
     private DesignElement? _selected;
+    private readonly List<DesignElement> _selectedElements = new();
 
     /// <summary>Canvas (artboard) paper color. Ignored when <see cref="CanvasTransparent"/> is true.</summary>
     private Color _canvasColor = Colors.White;
@@ -47,17 +48,47 @@ public class DesignDocument : INotifyPropertyChanged
     public double ArtboardWidth
     {
         get => _artboardWidth;
-        set { if (Set(ref _artboardWidth, Math.Clamp(value, 50, 8000))) { UpdatePasteboard(); Raise(nameof(CanvasSizeText)); Raise(nameof(ArtboardRect)); } }
+        set { if (Set(ref _artboardWidth, Math.Clamp(value, 1, 8000))) { UpdatePasteboard(); Raise(nameof(CanvasSizeText)); Raise(nameof(ArtboardRect)); } }
     }
 
     public double ArtboardHeight
     {
         get => _artboardHeight;
-        set { if (Set(ref _artboardHeight, Math.Clamp(value, 50, 8000))) { UpdatePasteboard(); Raise(nameof(CanvasSizeText)); Raise(nameof(ArtboardRect)); } }
+        set { if (Set(ref _artboardHeight, Math.Clamp(value, 1, 8000))) { UpdatePasteboard(); Raise(nameof(CanvasSizeText)); Raise(nameof(ArtboardRect)); } }
     }
 
     /// <summary>Canvas rect in pasteboard coords — elements are clipped to this.</summary>
     public Rect ArtboardRect => new(ArtboardX, ArtboardY, ArtboardWidth, ArtboardHeight);
+
+    /// <summary>The single raster layer painted directly on the canvas, if any.</summary>
+    public PaintLayerElement? CanvasPaintLayer =>
+        Elements.OfType<PaintLayerElement>().FirstOrDefault();
+
+    public PaintLayerElement EnsureCanvasPaintLayer()
+    {
+        var layer = CanvasPaintLayer;
+        if (layer == null)
+        {
+            layer = new PaintLayerElement { ZIndex = PaintLayerElement.BackgroundZ };
+            Elements.Add(layer);
+        }
+        layer.X = ArtboardX;
+        layer.Y = ArtboardY;
+        layer.Width = ArtboardWidth;
+        layer.Height = ArtboardHeight;
+        layer.ZIndex = PaintLayerElement.BackgroundZ;
+        return layer;
+    }
+
+    private void SyncCanvasPaintGeometry()
+    {
+        if (CanvasPaintLayer is not { } layer) return;
+        layer.X = ArtboardX;
+        layer.Y = ArtboardY;
+        layer.Width = ArtboardWidth;
+        layer.Height = ArtboardHeight;
+        layer.ZIndex = PaintLayerElement.BackgroundZ;
+    }
 
     /// <summary>Scrollable pasteboard area. Grows when the canvas + margin needs it.</summary>
     public double PasteboardWidth { get => _pasteboardWidth; private set => Set(ref _pasteboardWidth, value); }
@@ -71,15 +102,31 @@ public class DesignDocument : INotifyPropertyChanged
         get => _selected;
         private set
         {
-            if (_selected != null) _selected.IsSelected = false;
+            if (ReferenceEquals(_selected, value)) return;
             _selected = value;
-            if (_selected != null) _selected.IsSelected = true;
             Raise(nameof(Selected));
             Raise(nameof(HasSelection));
         }
     }
 
-    public bool HasSelection => Selected != null;
+    /// <summary>All selected elements; the last-clicked one is <see cref="Selected"/>.</summary>
+    public IReadOnlyList<DesignElement> SelectedElements => _selectedElements;
+
+    public int SelectionCount => _selectedElements.Count;
+
+    public bool HasSelection => _selected != null;
+
+    public Rect SelectionBounds
+    {
+        get
+        {
+            if (_selectedElements.Count == 0) return Rect.Empty;
+            Rect bounds = _selectedElements[0].Bounds;
+            for (int i = 1; i < _selectedElements.Count; i++)
+                bounds.Union(_selectedElements[i].Bounds);
+            return bounds;
+        }
+    }
 
     public Color CanvasColor
     {
@@ -102,8 +149,18 @@ public class DesignDocument : INotifyPropertyChanged
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.OldItems?.Contains(Selected) == true && Selected != null && !Elements.Contains(Selected))
-            Select(null);
+        if (e.OldItems != null)
+        {
+            foreach (DesignElement el in e.OldItems)
+            {
+                el.IsSelected = false;
+                _selectedElements.Remove(el);
+                if (ReferenceEquals(Selected, el))
+                    Selected = _selectedElements.LastOrDefault();
+            }
+            Raise(nameof(SelectedElements));
+            Raise(nameof(SelectionCount));
+        }
     }
 
     /// <summary>Keep the pasteboard comfortably larger than the artboard.</summary>
@@ -126,8 +183,8 @@ public class DesignDocument : INotifyPropertyChanged
     /// </summary>
     public void NewCanvas(string name, double width, double height, Color color, bool transparent)
     {
-        width = Math.Clamp(width, 50, 8000);
-        height = Math.Clamp(height, 50, 8000);
+        width = Math.Clamp(width, 1, 8000);
+        height = Math.Clamp(height, 1, 8000);
 
         Elements.Clear();
         Select(null);
@@ -151,19 +208,93 @@ public class DesignDocument : INotifyPropertyChanged
         Raise(nameof(CanvasSizeText));
     }
 
+    /// <summary>
+    /// Move and resize the artboard to an exact rectangle without the normal
+    /// canvas size limits. Used by crop-to-selection / crop-to-slice.
+    /// </summary>
+    public void SetArtboardRect(Rect rect)
+    {
+        if (rect.Width < 1 || rect.Height < 1) return;
+        _artboardX = rect.X;
+        _artboardY = rect.Y;
+        _artboardWidth = rect.Width;
+        _artboardHeight = rect.Height;
+        UpdatePasteboard();
+        Raise(nameof(ArtboardX)); Raise(nameof(ArtboardY));
+        Raise(nameof(ArtboardWidth)); Raise(nameof(ArtboardHeight));
+        Raise(nameof(ArtboardRect)); Raise(nameof(CanvasSizeText));
+    }
+
+    /// <summary>
+    /// Change the artboard size without touching the elements. The artboard
+    /// stays centered in the pasteboard, so the design keeps its center.
+    /// </summary>
+    public void ResizeCanvas(double width, double height)
+    {
+        width = Math.Clamp(width, 1, 8000);
+        height = Math.Clamp(height, 1, 8000);
+        if (Math.Abs(width - _artboardWidth) < 0.001 && Math.Abs(height - _artboardHeight) < 0.001)
+            return;
+
+        _pasteboardWidth = Math.Max(3000, width + 1200);
+        _pasteboardHeight = Math.Max(2000, height + 1200);
+        _artboardWidth = width;
+        _artboardHeight = height;
+        _artboardX = (_pasteboardWidth - width) / 2;
+        _artboardY = (_pasteboardHeight - height) / 2;
+
+        Raise(nameof(ArtboardX)); Raise(nameof(ArtboardY));
+        Raise(nameof(ArtboardWidth)); Raise(nameof(ArtboardHeight));
+        Raise(nameof(ArtboardRect));
+        Raise(nameof(PasteboardWidth)); Raise(nameof(PasteboardHeight));
+        Raise(nameof(CanvasSizeText));
+        SyncCanvasPaintGeometry();
+    }
+
     // ---------- selection ----------
 
-    public void Select(DesignElement? el)
+    public void Select(DesignElement? el) =>
+        SelectRange(el == null ? Array.Empty<DesignElement>() : new[] { el });
+
+    public void AddToSelection(DesignElement el)
     {
-        if (el != null && !Elements.Contains(el)) return;
+        if (el.IsBackgroundLayer || !Elements.Contains(el)) return;
+        if (!_selectedElements.Contains(el))
+        {
+            _selectedElements.Add(el);
+            el.IsSelected = true;
+            Raise(nameof(SelectedElements));
+            Raise(nameof(SelectionCount));
+        }
         Selected = el;
+    }
+
+    public void SelectRange(IEnumerable<DesignElement> elements)
+    {
+        var valid = elements
+            .Where(e => !e.IsBackgroundLayer && Elements.Contains(e))
+            .Distinct()
+            .ToList();
+
+        foreach (var el in _selectedElements) el.IsSelected = false;
+        _selectedElements.Clear();
+        foreach (var el in valid)
+        {
+            _selectedElements.Add(el);
+            el.IsSelected = true;
+        }
+
+        Selected = valid.LastOrDefault();
+        Raise(nameof(SelectedElements));
+        Raise(nameof(SelectionCount));
     }
 
     // ---------- add / remove / duplicate ----------
 
     public T Add<T>(T el) where T : DesignElement
     {
-        el.ZIndex = Elements.Count == 0 ? 0 : Elements.Max(e => e.ZIndex) + 1;
+        var regular = Elements.Where(e => !e.IsBackgroundLayer).ToList();
+        el.ZIndex = regular.Count == 0 ? 0 : regular.Max(e => e.ZIndex) + 1;
         Elements.Add(el);
         Select(el);
         return el;
@@ -172,70 +303,88 @@ public class DesignDocument : INotifyPropertyChanged
     public bool RemoveElement(DesignElement el)
     {
         if (!Elements.Remove(el)) return false;
-        if (ReferenceEquals(Selected, el)) Select(null);
+        if (ReferenceEquals(Selected, el)) Selected = _selectedElements.LastOrDefault();
         return true;
     }
 
     public void RemoveSelected()
     {
-        if (Selected == null) return;
-        Elements.Remove(Selected);
-        Select(null);
+        foreach (var el in _selectedElements.ToList())
+            Elements.Remove(el);
     }
 
     public void DuplicateSelected()
     {
-        if (Selected == null) return;
+        if (Selected == null || Selected.IsBackgroundLayer) return;
         var clone = (DesignElement)Selected.Clone();
         clone.X += 20; // Duplicate nudges so both are visible…
         clone.Y += 20; // …while Copy/Paste below stays exactly in place.
         Add(clone);
     }
 
+    public List<DesignElement> DuplicateSelectedElements()
+    {
+        var copies = new List<DesignElement>();
+        foreach (var el in _selectedElements.ToList())
+        {
+            var clone = el.Clone();
+            clone.X += 20;
+            clone.Y += 20;
+            Add(clone);
+            copies.Add(clone);
+        }
+        SelectRange(copies);
+        return copies;
+    }
+
     // ---------- Z-order (the "no layers" stacking model) ----------
 
     public void BringToFront()
     {
-        if (Selected == null || Elements.Count < 2) return;
-        Selected.ZIndex = Elements.Max(e => e.ZIndex) + 1;
+        var regular = Elements.Where(e => !e.IsBackgroundLayer).ToList();
+        if (Selected == null || Selected.IsBackgroundLayer || regular.Count < 2) return;
+        Selected.ZIndex = regular.Max(e => e.ZIndex) + 1;
         NormalizeZ();
     }
 
     public void SendToBack()
     {
-        if (Selected == null || Elements.Count < 2) return;
-        Selected.ZIndex = Elements.Min(e => e.ZIndex) - 1;
+        var regular = Elements.Where(e => !e.IsBackgroundLayer).ToList();
+        if (Selected == null || Selected.IsBackgroundLayer || regular.Count < 2) return;
+        Selected.ZIndex = regular.Min(e => e.ZIndex) - 1;
         NormalizeZ();
     }
 
     public void BringForward()
     {
-        if (Selected == null) return;
-        var ordered = Elements.OrderBy(e => e.ZIndex).ToList();
+        if (Selected == null || Selected.IsBackgroundLayer) return;
+        var ordered = Elements.Where(e => !e.IsBackgroundLayer).OrderBy(e => e.ZIndex).ToList();
         int i = ordered.IndexOf(Selected);
         if (i < 0 || i == ordered.Count - 1) return;
         (ordered[i].ZIndex, ordered[i + 1].ZIndex) = (ordered[i + 1].ZIndex, ordered[i].ZIndex);
         NormalizeZ();
-        var s = Selected; Selected = null; Select(s);
+        Select(Selected);
     }
 
     public void SendBackward()
     {
-        if (Selected == null) return;
-        var ordered = Elements.OrderBy(e => e.ZIndex).ToList();
+        if (Selected == null || Selected.IsBackgroundLayer) return;
+        var ordered = Elements.Where(e => !e.IsBackgroundLayer).OrderBy(e => e.ZIndex).ToList();
         int i = ordered.IndexOf(Selected);
         if (i <= 0) return;
         (ordered[i].ZIndex, ordered[i - 1].ZIndex) = (ordered[i - 1].ZIndex, ordered[i].ZIndex);
         NormalizeZ();
-        var s = Selected; Selected = null; Select(s);
+        Select(Selected);
     }
 
     /// <summary>Reassign 0..N in current visual order so ZIndex never drifts.</summary>
     public void NormalizeZ()
     {
-        var ordered = Elements.OrderBy(e => e.ZIndex).ToList();
+        var ordered = Elements.Where(e => !e.IsBackgroundLayer).OrderBy(e => e.ZIndex).ToList();
         for (int i = 0; i < ordered.Count; i++)
             ordered[i].ZIndex = i;
+        foreach (var layer in Elements.Where(e => e.IsBackgroundLayer))
+            layer.ZIndex = PaintLayerElement.BackgroundZ;
     }
 
     // ---------- helpers ----------

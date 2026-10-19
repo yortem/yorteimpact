@@ -76,17 +76,24 @@ public static class SliceCutService
     public static ImageElement CutShapeFlat(ShapeElement el, Rect sliceCanvas)
     {
         const double scale = 2.0; // crisp pixels regardless of view zoom
-        double radius = Math.Min(el.CornerRadius, Math.Min(el.Width, el.Height) / 2);
 
         // Render the shape exactly as the canvas template draws it.
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = el.ShapeGeometry,
+            Fill = el.FillBrush,
+            Stroke = el.BorderBrush,
+            StrokeThickness = el.StrokeThickness,
+            StrokeLineJoin = PenLineJoin.Round,
+            Stretch = Stretch.None,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
         var border = new Border
         {
             Width = el.Width,
             Height = el.Height,
-            CornerRadius = new CornerRadius(radius),
-            Background = el.FillBrush,
-            BorderBrush = el.BorderBrush,
-            BorderThickness = new Thickness(el.StrokeThickness),
+            Child = path,
             RenderTransformOrigin = new Point(0.5, 0.5),
             RenderTransform = new ScaleTransform(el.FlipScaleX, el.FlipScaleY),
         };
@@ -118,12 +125,75 @@ public static class SliceCutService
         {
             X = el.X,
             Y = el.Y,
-            CornerRadius = radius, // ants keep following the rounded outline
+            CornerRadius = 0,
         };
         img.SetBitmap(wb);
         img.Width = el.Width;
         img.Height = el.Height;
+        TrimToOpaqueBounds(img);
         return img;
+    }
+
+    /// <summary>
+    /// Shrink an image element to the bounding box of its visible pixels.
+    /// After a slice removes an entire side, the punched pixels are transparent
+    /// and the element would otherwise keep its old (now half-empty) box.
+    /// </summary>
+    private static void TrimToOpaqueBounds(ImageElement el)
+    {
+        if (el.Source is not BitmapSource src || src.PixelWidth <= 0 || src.PixelHeight <= 0)
+            return;
+
+        int pw = src.PixelWidth, ph = src.PixelHeight;
+        double s = Math.Max(el.Width / pw, el.Height / ph);
+        if (s <= 0) return;
+
+        // Same UniformToFill center-crop mapping used by the renderer.
+        double offX = (pw * s - el.Width) / 2;
+        double offY = (ph * s - el.Height) / 2;
+
+        int visX = Math.Clamp((int)Math.Floor(offX / s), 0, pw - 1);
+        int visY = Math.Clamp((int)Math.Floor(offY / s), 0, ph - 1);
+        int visW = Math.Clamp((int)Math.Ceiling(el.Width / s), 1, pw - visX);
+        int visH = Math.Clamp((int)Math.Ceiling(el.Height / s), 1, ph - visY);
+
+        BitmapSource formatted = src.Format == PixelFormats.Pbgra32
+            ? src
+            : new FormatConvertedBitmap(src, PixelFormats.Pbgra32, null, 0);
+
+        int stride = visW * 4;
+        var pixels = new byte[stride * visH];
+        formatted.CopyPixels(new Int32Rect(visX, visY, visW, visH), pixels, stride, 0);
+
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+        for (int y = 0; y < visH; y++)
+        {
+            int row = y * stride;
+            for (int x = 0; x < visW; x++)
+            {
+                if (pixels[row + x * 4 + 3] == 0) continue;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+
+        if (maxX < 0) return; // nothing opaque left
+        int cw = maxX - minX + 1;
+        int ch = maxY - minY + 1;
+        if (cw >= visW && ch >= visH) return; // content still fills the box
+
+        int cropX = visX + minX;
+        int cropY = visY + minY;
+        var crop = new CroppedBitmap(formatted, new Int32Rect(cropX, cropY, cw, ch));
+        if (crop.CanFreeze) crop.Freeze();
+
+        el.X += cropX * s - offX;
+        el.Y += cropY * s - offY;
+        el.Width = Math.Max(1, cw * s);
+        el.Height = Math.Max(1, ch * s);
+        el.Source = crop;
     }
 
     /// <summary>
@@ -170,6 +240,7 @@ public static class SliceCutService
         int stride = w * 4;
         wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * stride], stride, 0);
         el.Source = wb; // setter rebuilds the ImageBrush
+        TrimToOpaqueBounds(el);
         return PunchResult.Partial;
     }
 }

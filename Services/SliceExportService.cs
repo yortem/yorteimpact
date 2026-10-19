@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Webp;
+using YorteImpact.Controls;
 using YorteImpact.Models;
 
 namespace YorteImpact.Services;
@@ -124,27 +125,34 @@ public static class SliceExportService
         return cropped;
     }
 
-    /// <summary>Build the same Border the canvas template uses for an element (shape or image).</summary>
-    private static FrameworkElement BuildElementVisual(DesignElement el)
+    /// <summary>Build the same Border the canvas template uses for an element.</summary>
+    private static FrameworkElement BuildElementVisual(DesignElement el, bool applyFlip = true)
     {
-        var scale = new ScaleTransform(el.FlipScaleX, el.FlipScaleY);
+        var scale = new ScaleTransform(el.FlipScaleX, el.FlipScaleY, el.Width / 2, el.Height / 2);
         Border border;
         switch (el)
         {
             case ShapeElement s:
             {
-                double radius = Math.Min(s.CornerRadius, Math.Min(s.Width, s.Height) / 2);
+                var path = new System.Windows.Shapes.Path
+                {
+                    Data = s.ShapeGeometry,
+                    Fill = s.FillBrush,
+                    Stroke = s.BorderBrush,
+                    StrokeThickness = s.StrokeThickness,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Stretch = Stretch.None,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                };
                 border = new Border
                 {
                     Width = s.Width, Height = s.Height,
-                    CornerRadius = new CornerRadius(radius),
-                    Background = s.FillBrush,
-                    BorderBrush = s.BorderBrush,
-                    BorderThickness = new Thickness(s.StrokeThickness),
+                    Child = path,
                     Opacity = el.OpacityFactor,
-                    OpacityMask = el.SoftEdgeMask,
+                    OpacityMask = el.OpacityMaskBrush,
+                    Effect = el.ShadowEffect,
                     RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
-                    RenderTransform = scale,
                 };
                 break;
             }
@@ -155,17 +163,101 @@ public static class SliceExportService
                     CornerRadius = new CornerRadius(im.CornerRadius),
                     Background = im.ImageBrush,
                     Opacity = el.OpacityFactor,
-                    OpacityMask = el.SoftEdgeMask,
+                    OpacityMask = el.OpacityMaskBrush,
+                    Effect = el.ShadowEffect,
                     RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
-                    RenderTransform = scale,
+                };
+                break;
+            case TextElement text:
+                border = new Border
+                {
+                    Width = text.Width, Height = text.Height,
+                    Child = new TextElementView
+                    {
+                        Element = text,
+                        Width = text.Width,
+                        Height = text.Height,
+                        Effect = text.ShadowEffect,
+                    },
+                    Opacity = el.OpacityFactor,
+                    OpacityMask = el.OpacityMaskBrush,
+                    RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
                 };
                 break;
             default:
                 throw new NotSupportedException("Unsupported element type for slice copy.");
         }
+        if (applyFlip) border.RenderTransform = scale;
         border.Measure(new System.Windows.Size(el.Width, el.Height));
         border.Arrange(new Rect(0, 0, el.Width, el.Height));
         return border;
+    }
+
+    /// <summary>
+    /// Render one element on its own at 1:1, including rotation, shadow and
+    /// opacity masks. <paramref name="background"/> null keeps transparency.
+    /// </summary>
+    public static BitmapSource RenderElement(DesignElement el, System.Windows.Media.Color? background, double scale = 1.0)
+    {
+        if (el.Width < 1 || el.Height < 1)
+            throw new ArgumentException("The element is empty.", nameof(el));
+        if (scale <= 0) scale = 1.0;
+
+        double rad = el.RotationAngle * Math.PI / 180.0;
+        double cos = Math.Cos(rad), sin = Math.Sin(rad);
+        double cx = el.Width / 2, cy = el.Height / 2;
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var (lx, ly) in new[]
+                 {
+                     (0.0, 0.0), (el.Width, 0.0), (el.Width, el.Height), (0.0, el.Height),
+                 })
+        {
+            double x = el.X + cx + (lx - cx) * cos - (ly - cy) * sin;
+            double y = el.Y + cy + (lx - cx) * sin + (ly - cy) * cos;
+            minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x); maxY = Math.Max(maxY, y);
+        }
+
+        double pad = el.ShadowStyle == ShadowStyle.None
+            ? 0
+            : Math.Max(Math.Abs(el.ShadowX), Math.Abs(el.ShadowY)) + el.ShadowBlur + 2;
+        var bounds = new Rect(minX - pad, minY - pad,
+            Math.Max(1, maxX - minX + pad * 2), Math.Max(1, maxY - minY + pad * 2));
+
+        int outW = Math.Max(1, (int)Math.Ceiling(bounds.Width * scale));
+        int outH = Math.Max(1, (int)Math.Ceiling(bounds.Height * scale));
+
+        var visual = BuildElementVisual(el, applyFlip: false);
+        var transform = new TransformGroup();
+        transform.Children.Add(new ScaleTransform(el.FlipScaleX, el.FlipScaleY, cx, cy));
+        transform.Children.Add(new RotateTransform(el.RotationAngle, cx, cy));
+        transform.Children.Add(new TranslateTransform(el.X, el.Y));
+        transform.Children.Add(new TranslateTransform(-bounds.X, -bounds.Y));
+        transform.Children.Add(new ScaleTransform(scale, scale));
+        visual.RenderTransform = transform;
+
+        var rtb = new RenderTargetBitmap(outW, outH, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        if (rtb.CanFreeze) rtb.Freeze();
+        if (background is not System.Windows.Media.Color bg) return rtb;
+
+        int stride = outW * 4;
+        var src = new byte[stride * outH];
+        rtb.CopyPixels(src, stride, 0);
+        var flat = new byte[stride * outH];
+        for (int i = 0; i < flat.Length; i += 4)
+        {
+            double alpha = src[i + 3] / 255.0;
+            flat[i] = (byte)Math.Clamp(src[i] + bg.B * (1 - alpha), 0, 255);
+            flat[i + 1] = (byte)Math.Clamp(src[i + 1] + bg.G * (1 - alpha), 0, 255);
+            flat[i + 2] = (byte)Math.Clamp(src[i + 2] + bg.R * (1 - alpha), 0, 255);
+            flat[i + 3] = 255;
+        }
+
+        var flattened = BitmapSource.Create(outW, outH, 96, 96, PixelFormats.Bgra32, null, flat, stride);
+        flattened.Freeze();
+        return flattened;
     }
 
     /// <summary>

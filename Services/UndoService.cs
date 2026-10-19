@@ -11,7 +11,7 @@ namespace YorteImpact.Services;
 /// </summary>
 public sealed class UndoService
 {
-    private sealed record Entry(YorteProjectService.ProjectFile State, Guid? SelectedId);
+    private sealed record Entry(YorteProjectService.ProjectFile State, List<Guid> SelectedIds);
 
     private readonly LinkedList<Entry> _undo = new();
     private readonly LinkedList<Entry> _redo = new();
@@ -23,7 +23,8 @@ public sealed class UndoService
     /// <summary>Record pre-mutation state. Clears the redo stack.</summary>
     public void Capture(DesignDocument doc)
     {
-        _undo.AddFirst(new Entry(YorteProjectService.Capture(doc), doc.Selected?.Id));
+        _undo.AddFirst(new Entry(YorteProjectService.Capture(doc),
+            doc.SelectedElements.Select(e => e.Id).ToList()));
         while (_undo.Count > Limit) _undo.RemoveLast();
         _redo.Clear();
     }
@@ -55,14 +56,18 @@ public sealed class UndoService
     }
 
     private static Entry Current(DesignDocument doc) =>
-        new(YorteProjectService.Capture(doc), doc.Selected?.Id);
+        new(YorteProjectService.Capture(doc),
+            doc.SelectedElements.Select(e => e.Id).ToList());
 
     private static void Apply(DesignDocument doc, Entry e)
     {
         YorteProjectService.ApplyTo(e.State, doc);
-        DesignElement? match = null;
-        if (e.SelectedId is Guid id)
-            match = doc.Elements.FirstOrDefault(x => x.Id == id);
-        doc.Select(match);
+        var matches = e.SelectedIds
+            .Select(id => doc.Elements.FirstOrDefault(x => x.Id == id))
+            .Where(x => x != null)
+            .Cast<DesignElement>()
+            .ToList();
+        if (matches.Count > 0) doc.SelectRange(matches);
+        else doc.Select(null);
     }
 }

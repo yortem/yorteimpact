@@ -118,8 +118,8 @@
               Width="18" Height="18" Stretch="Uniform"/>
       </Border>
       <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-        <TextBlock Text="New canvas" FontWeight="Bold" FontSize="18"/>
-        <TextBlock Text="Choose a size and a background" FontSize="11"
+        <TextBlock x:Name="HeaderTitle" Text="New canvas" FontWeight="Bold" FontSize="18"/>
+        <TextBlock x:Name="HeaderSubtitle" Text="Choose a size and a background" FontSize="11"
                    Foreground="#AEBCCC"/>
       </StackPanel>
     </StackPanel>
@@ -198,23 +198,25 @@
     </Grid>
 
     <!-- background: white or transparent only -->
-    <TextBlock Text="BACKGROUND" Foreground="#AEBCCC" FontSize="10"
-               FontWeight="SemiBold" Margin="2,18,0,8"/>
-    <StackPanel Orientation="Horizontal">
-      <RadioButton x:Name="BgWhite" GroupName="Bg" Style="{StaticResource BgTile}">
-        <StackPanel Orientation="Horizontal">
-          <Border Width="34" Height="24" CornerRadius="2" Background="White"
-                  BorderBrush="#223248" BorderThickness="1"/>
-          <TextBlock Text="White" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
-        </StackPanel>
-      </RadioButton>
-      <RadioButton x:Name="BgTransparent" GroupName="Bg" Style="{StaticResource BgTile}">
-        <StackPanel Orientation="Horizontal">
-          <Border Width="34" Height="24" CornerRadius="2" Background="{StaticResource Checker}"
-                  BorderBrush="#223248" BorderThickness="1"/>
-          <TextBlock Text="Transparent" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
-        </StackPanel>
-      </RadioButton>
+    <StackPanel x:Name="BackgroundSection">
+      <TextBlock Text="BACKGROUND" Foreground="#AEBCCC" FontSize="10"
+                 FontWeight="SemiBold" Margin="2,18,0,8"/>
+      <StackPanel Orientation="Horizontal">
+        <RadioButton x:Name="BgWhite" GroupName="Bg" Style="{StaticResource BgTile}">
+          <StackPanel Orientation="Horizontal">
+            <Border Width="34" Height="24" CornerRadius="2" Background="White"
+                    BorderBrush="#223248" BorderThickness="1"/>
+            <TextBlock Text="White" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
+          </StackPanel>
+        </RadioButton>
+        <RadioButton x:Name="BgTransparent" GroupName="Bg" Style="{StaticResource BgTile}">
+          <StackPanel Orientation="Horizontal">
+            <Border Width="34" Height="24" CornerRadius="2" Background="{StaticResource Checker}"
+                    BorderBrush="#223248" BorderThickness="1"/>
+            <TextBlock Text="Transparent" VerticalAlignment="Center" FontSize="12" Margin="10,0,0,0"/>
+          </StackPanel>
+        </RadioButton>
+      </StackPanel>
     </StackPanel>
 
     <TextBlock x:Name="ErrorText" Foreground="#FF7B7B" Margin="2,12,0,0" Visibility="Collapsed"/>
@@ -222,7 +224,7 @@
       <Button Content="Cancel" Width="96" Padding="0,8" Margin="0,0,10,0"
               Background="#223248" Foreground="White" BorderBrush="Transparent"
               Cursor="Hand" Click="Cancel_Click"/>
-      <Button Content="Create" Width="112" Padding="0,8" IsDefault="True"
+      <Button x:Name="PrimaryButton" Content="Create" Width="112" Padding="0,8" IsDefault="True"
               Background="{StaticResource Accent}" Foreground="White" BorderBrush="Transparent"
               Cursor="Hand" Click="Create_Click"/>
     </StackPanel>

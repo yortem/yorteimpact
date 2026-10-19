@@ -23,6 +23,7 @@ public partial class ColorPickerDialog : Window
     private double _s = 1;  // 0..1
     private double _v = 1;  // 0..1
     private bool _suppress;
+    private bool _screenPicking;
 
     public Color SelectedColor { get; private set; } = Colors.Black;
 
@@ -54,34 +55,47 @@ public partial class ColorPickerDialog : Window
 
     private void BuildPalette()
     {
-        // A compact palette: standard hues + a gray ramp.
+        // Compact modern palette: neutrals + soft pastels, one row.
         Color[] swatches =
         {
-            Colors.Black, Color.FromRgb(0x40,0x40,0x40), Color.FromRgb(0x80,0x80,0x80),
-            Color.FromRgb(0xC0,0xC0,0xC0), Colors.White, Color.FromRgb(0x7F,0x00,0x00),
-            Colors.Red, Colors.Orange, Colors.Yellow, Colors.Green, Colors.Cyan,
-            Colors.Blue, Color.FromRgb(0x7F,0x00,0x7F), Colors.Magenta, Color.FromRgb(0x8B,0x45,0x13),
-            Color.FromRgb(0x00,0x80,0x00), Color.FromRgb(0x00,0x40,0x80), Color.FromRgb(0x40,0x00,0x80),
+            Color.FromRgb(0x11, 0x18, 0x27), Color.FromRgb(0x6B, 0x72, 0x80),
+            Color.FromRgb(0xD1, 0xD5, 0xDB), Colors.White,
+            Color.FromRgb(0xFC, 0xA5, 0xA5), Color.FromRgb(0xFD, 0xBA, 0x74),
+            Color.FromRgb(0xFD, 0xE6, 0x8A), Color.FromRgb(0xBB, 0xF7, 0xD0),
+            Color.FromRgb(0xA7, 0xF3, 0xD0), Color.FromRgb(0xA5, 0xF3, 0xFC),
+            Color.FromRgb(0xBF, 0xDB, 0xFE), Color.FromRgb(0xC7, 0xD2, 0xFE),
+            Color.FromRgb(0xDD, 0xD6, 0xFE), Color.FromRgb(0xFB, 0xCF, 0xE8),
+            Color.FromRgb(0xE9, 0xD5, 0xFF), Color.FromRgb(0xFE, 0xD7, 0xAA),
         };
         foreach (var c in swatches)
         {
-            var btn = new Border
-            {
-                Width = 20, Height = 20, Margin = new Thickness(2),
-                Background = new SolidColorBrush(c),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x44)),
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
-            };
+            var swatch = MakeSwatch(c, 20);
             var captured = c;
-            btn.MouseLeftButtonDown += (_, _) => { FromColor(captured); Refresh(); };
-            PaletteWrap.Children.Add(btn);
+            swatch.MouseLeftButtonDown += (_, _) => { FromColor(captured); Refresh(); };
+            PaletteWrap.Children.Add(swatch);
         }
+    }
+
+    private static Border MakeSwatch(Color c, double size)
+    {
+        return new Border
+        {
+            Width = size, Height = size, Margin = new Thickness(2),
+            Background = new SolidColorBrush(c),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x44)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Cursor = Cursors.Hand,
+            ToolTip = $"#{c.R:X2}{c.G:X2}{c.B:X2}",
+        };
     }
 
     private void BuildCanvasColors(IEnumerable<Color>? colors)
     {
         var list = colors?.ToList() ?? new List<Color>();
+        _canvasColors.Clear();
+        _canvasColors.AddRange(list);
+        CopyPaletteBtn.IsEnabled = list.Count > 0;
         if (list.Count == 0)
         {
             CanvasEmptyHint.Visibility = Visibility.Visible;
@@ -90,19 +104,178 @@ public partial class ColorPickerDialog : Window
         foreach (var c in list)
         {
             var captured = c;
-            var border = new Border
-            {
-                Width = 20, Height = 20, Margin = new Thickness(2),
-                Background = new SolidColorBrush(captured),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x44)),
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
-                ToolTip = $"#{captured.R:X2}{captured.G:X2}{captured.B:X2}",
-            };
+            var border = MakeSwatch(captured, 20);
             border.MouseLeftButtonDown += (_, _) => { FromColor(captured); Refresh(); };
             CanvasWrap.Children.Add(border);
         }
     }
+
+    private readonly List<Color> _canvasColors = new();
+
+    private void CopyPalette_Click(object sender, RoutedEventArgs e)
+    {
+        if (_canvasColors.Count == 0) return;
+        try
+        {
+            Clipboard.SetText(string.Join(", ",
+                _canvasColors.Select(c => $"#{c.R:X2}{c.G:X2}{c.B:X2}")));
+            Status("Copied the canvas palette.");
+        }
+        catch
+        {
+            Status("Clipboard is busy - try again.");
+        }
+    }
+
+    // ---------------- image palette ----------------
+
+    private void PasteImage_Click(object sender, RoutedEventArgs e)
+    {
+        var bmp = ClipboardHelper.TryGetImage();
+        if (bmp == null)
+        {
+            Status("Clipboard has no image.");
+            return;
+        }
+        ShowImagePalette(bmp);
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+            && Keyboard.FocusedElement is not TextBox)
+        {
+            PasteImage_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = TryGetDroppedImage(e.Data) != null ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        var bmp = TryGetDroppedImage(e.Data);
+        if (bmp == null)
+        {
+            Status("Drop a PNG, JPG, BMP, GIF or WebP image.");
+            return;
+        }
+        ShowImagePalette(bmp);
+        e.Handled = true;
+    }
+
+    private static BitmapSource? TryGetDroppedImage(IDataObject data)
+    {
+        if (!data.GetDataPresent(DataFormats.FileDrop)) return null;
+        if (data.GetData(DataFormats.FileDrop) is not string[] files) return null;
+
+        foreach (string? file in files)
+        {
+            if (file == null) continue;
+            string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+            if (ext is not (".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp" or ".tif" or ".tiff"))
+                continue;
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(file, UriKind.Absolute);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                if (bmp.CanFreeze) bmp.Freeze();
+                return bmp;
+            }
+            catch { /* try the next file */ }
+        }
+        return null;
+    }
+
+    private void ShowImagePalette(BitmapSource source)
+    {
+        ImageWrap.Children.Clear();
+        var colors = ImageColors(source);
+        if (colors.Count == 0)
+        {
+            ImageEmptyHint.Visibility = Visibility.Visible;
+            Status("Could not read colors from that image.");
+            return;
+        }
+
+        ImageEmptyHint.Visibility = Visibility.Collapsed;
+        foreach (var c in colors)
+        {
+            var captured = c;
+            var border = MakeSwatch(captured, 22);
+            border.MouseLeftButtonDown += (_, _) => { FromColor(captured); Refresh(); };
+            ImageWrap.Children.Add(border);
+        }
+        Status($"Read {colors.Count} colors from the image.");
+    }
+
+    /// <summary>
+    /// Distinct colors of an image, most-frequent first. The bitmap is scaled
+    /// down, bucketed to 12-bit and near-duplicate buckets are merged so the
+    /// result reads as a usable palette instead of a pixel histogram.
+    /// </summary>
+    private static List<Color> ImageColors(BitmapSource src, int max = 18)
+    {
+        var counts = new Dictionary<int, int>();
+        try
+        {
+            const int target = 96;
+            double scale = Math.Min(1.0,
+                Math.Min((double)target / src.PixelWidth, (double)target / src.PixelHeight));
+            BitmapSource small = scale < 1.0
+                ? new TransformedBitmap(src, new ScaleTransform(scale, scale))
+                : src;
+            var conv = new FormatConvertedBitmap(small, PixelFormats.Bgra32, null, 0);
+            int w = conv.PixelWidth, h = conv.PixelHeight;
+            int stride = w * 4;
+            var px = new byte[stride * h];
+            conv.CopyPixels(px, stride, 0);
+
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * stride;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x * 4;
+                    if (px[i + 3] < 64) continue;
+                    int key = (px[i + 2] >> 4) << 8 | (px[i + 1] >> 4) << 4 | (px[i] >> 4);
+                    counts[key] = counts.TryGetValue(key, out int n) ? n + 1 : 1;
+                }
+            }
+        }
+        catch
+        {
+            return new List<Color>();
+        }
+
+        var result = new List<Color>();
+        foreach (var kv in counts.OrderByDescending(kv => kv.Value))
+        {
+            var c = Color.FromRgb(
+                (byte)(((kv.Key >> 8) & 0xF) * 16 + 8),
+                (byte)(((kv.Key >> 4) & 0xF) * 16 + 8),
+                (byte)((kv.Key & 0xF) * 16 + 8));
+            if (result.Any(existing => Distance(existing, c) < 24)) continue;
+            result.Add(c);
+            if (result.Count >= max) break;
+        }
+        return result;
+    }
+
+    private static int Distance(Color a, Color b)
+    {
+        int dr = a.R - b.R, dg = a.G - b.G, db = a.B - b.B;
+        return dr * dr + dg * dg + db * db;
+    }
+
+    private void Status(string text) => StatusText.Text = text;
 
     private void BuildPalettes()
     {
@@ -151,9 +324,9 @@ public partial class ColorPickerDialog : Window
 
     /// <summary>
     /// The distinct colors used by the document: the paper color, every shape's
-    /// fill(s) and stroke, plus a coarse sample of each image. Colors are bucketed
-    /// to 12-bit and returned most-frequent-first so the picker can offer the
-    /// artwork's own palette (an on-canvas color list).
+    /// fill(s) and stroke, text fill/border, photo tone colors and a coarse
+    /// sample of each image. Colors are bucketed to 12-bit and returned
+    /// most-frequent-first so the picker can offer the artwork's own palette.
     /// </summary>
     public static List<Color> CanvasColors(DesignDocument doc)
     {
@@ -178,7 +351,13 @@ public partial class ColorPickerDialog : Window
                     if (s.StrokeThickness > 0) Add(s.StrokeColor, 1);
                     break;
                 case ImageElement im:
-                    SampleImage(im.Source as BitmapSource, Add);
+                    SampleImage(im.DisplaySource as BitmapSource, Add);
+                    if (im.Adjustments.ToneAmount > 0) Add(im.Adjustments.ToneColor, 1);
+                    break;
+                case TextElement t:
+                    Add(t.TextColor1, 3);
+                    if (t.IsGradient) Add(t.TextColor2, 3);
+                    if (t.HasBorder) Add(t.BorderColor, 1);
                     break;
             }
         }
@@ -355,6 +534,55 @@ public partial class ColorPickerDialog : Window
         {
             FromColor(Color.FromRgb(r, g, b));
             Refresh();
+        }
+    }
+
+    private void ScreenPick_Click(object sender, RoutedEventArgs e)
+    {
+        if (_screenPicking) return;
+        _screenPicking = true;
+        try
+        {
+            var overlay = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                Content = new Border { Background = Brushes.Transparent },
+                Topmost = true,
+                ShowInTaskbar = false,
+                ResizeMode = ResizeMode.NoResize,
+                Cursor = Cursors.Cross,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = SystemParameters.VirtualScreenLeft,
+                Top = SystemParameters.VirtualScreenTop,
+                Width = SystemParameters.VirtualScreenWidth,
+                Height = SystemParameters.VirtualScreenHeight,
+                Owner = this,
+            };
+
+            Color? picked = null;
+            overlay.MouseLeftButtonDown += (_, me) =>
+            {
+                picked = ScreenColorSampler.SampleScreenPixel(
+                    overlay.PointToScreen(me.GetPosition(overlay)));
+                overlay.DialogResult = true;
+            };
+            overlay.PreviewKeyDown += (_, ke) =>
+            {
+                if (ke.Key == Key.Escape) overlay.DialogResult = false;
+            };
+
+            overlay.ShowDialog();
+            if (picked is { } color)
+            {
+                FromColor(color);
+                Refresh();
+            }
+        }
+        finally
+        {
+            _screenPicking = false;
         }
     }
 

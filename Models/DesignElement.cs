@@ -15,6 +15,11 @@ public enum ShadowStyle
     Hard,
     Long,
     Glow,
+    Ambient,
+    Card,
+    Raised,
+    Float,
+    Crisp,
     Custom,
 }
 
@@ -116,6 +121,12 @@ public abstract class DesignElement : INotifyPropertyChanged
         get => _zIndex;
         set => Set(ref _zIndex, value);
     }
+
+    /// <summary>
+    /// True for the canvas paint layer. Background layers stay below regular
+    /// elements and are excluded from selection, snapping and Z-order actions.
+    /// </summary>
+    public virtual bool IsBackgroundLayer => false;
 
     public bool IsSelected
     {
@@ -382,6 +393,21 @@ public abstract class DesignElement : INotifyPropertyChanged
                 ShadowX = 0; ShadowY = 0; ShadowBlur = 30; ShadowOpacity = 60;
                 ShadowColor = Color.FromRgb(0x2E, 0x9B, 0xFF);
                 break;
+            case ShadowStyle.Ambient:
+                ShadowX = 0; ShadowY = 0; ShadowBlur = 24; ShadowOpacity = 18; ShadowColor = Colors.Black;
+                break;
+            case ShadowStyle.Card:
+                ShadowX = 0; ShadowY = 4; ShadowBlur = 10; ShadowOpacity = 14; ShadowColor = Colors.Black;
+                break;
+            case ShadowStyle.Raised:
+                ShadowX = 0; ShadowY = 8; ShadowBlur = 12; ShadowOpacity = 24; ShadowColor = Colors.Black;
+                break;
+            case ShadowStyle.Float:
+                ShadowX = 0; ShadowY = 16; ShadowBlur = 28; ShadowOpacity = 18; ShadowColor = Colors.Black;
+                break;
+            case ShadowStyle.Crisp:
+                ShadowX = 0; ShadowY = 2; ShadowBlur = 3; ShadowOpacity = 26; ShadowColor = Colors.Black;
+                break;
         }
         Raise(nameof(ShadowEffect));
     }
@@ -423,6 +449,24 @@ public abstract class DesignElement : INotifyPropertyChanged
         if (a > 180) a -= 360;
         if (a <= -180) a += 360;
         return a;
+    }
+
+    /// <summary>Copy appearance settings (not geometry, content or stacking) onto another element.</summary>
+    public virtual void CopyStyleTo(DesignElement target)
+    {
+        target.Opacity = Opacity;
+        target.SoftEdge = SoftEdge;
+        target.UseOpacityGradient = UseOpacityGradient;
+        target.OpacityDirection = OpacityDirection;
+        target.OpacityStart = OpacityStart;
+        target.OpacityEnd = OpacityEnd;
+        target.OpacityStrength = OpacityStrength;
+        target.ShadowStyle = ShadowStyle;
+        target.ShadowX = ShadowX;
+        target.ShadowY = ShadowY;
+        target.ShadowBlur = ShadowBlur;
+        target.ShadowOpacity = ShadowOpacity;
+        target.ShadowColor = ShadowColor;
     }
 
     public abstract DesignElement Clone();

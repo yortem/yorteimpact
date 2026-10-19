@@ -25,9 +25,9 @@ public partial class SettingsDialog : Window
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(WidthBox.Text, out int w) || !int.TryParse(HeightBox.Text, out int h)
-            || w < 50 || h < 50 || w > 8000 || h > 8000)
+            || w < 1 || h < 1 || w > 8000 || h > 8000)
         {
-            ErrorText.Text = "Enter whole pixels, 50 – 8000 per side.";
+            ErrorText.Text = "Enter whole pixels, 1 – 8000 per side.";
             ErrorText.Visibility = Visibility.Visible;
             return;
         }

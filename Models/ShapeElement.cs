@@ -16,15 +16,24 @@ public enum GradientType
     Elliptical,
 }
 
+/// <summary>Geometry drawn inside the element's box.</summary>
+public enum ShapeKind
+{
+    Rectangle,
+    Ellipse,
+    Triangle,
+    Polygon,
+}
+
 /// <summary>
-/// Rectangle / card element with corner radius, border and solid-or-gradient fill.
-/// The template binds to the prebuilt <see cref="FillBrush"/> /
-/// <see cref="BorderBrush"/> so XAML stays converter-free; changing any
-/// color property rebuilds the brushes.
+/// Vector element with a fill, border and corner radius. The geometry can be a
+/// rectangle, ellipse, triangle or a custom polygon; the template binds to the
+/// prebuilt geometry and brushes so XAML stays converter-free.
 /// </summary>
 public class ShapeElement : DesignElement
 {
     private double _cornerRadius = 12;
+    private ShapeKind _kind = ShapeKind.Rectangle;
     private Color _fillColor1 = Color.FromRgb(0x3B, 0x82, 0xF6);
     private Color _fillColor2 = Color.FromRgb(0x93, 0xC5, 0xFD);
     private bool _isGradient = true;
@@ -35,22 +44,63 @@ public class ShapeElement : DesignElement
 
     private Brush _fillBrush = Brushes.CornflowerBlue;
     private Brush _borderBrush = Brushes.Navy;
+    private Geometry _shapeGeometry = Geometry.Empty;
+
+    private readonly List<Point> _polygonPoints = new();
+
+    private static readonly Point[] DefaultPolygon =
+    {
+        new(0.5, 0), new(1, 0.38), new(0.82, 1), new(0.18, 1), new(0, 0.38),
+    };
 
     public ShapeElement()
     {
         RebuildBrushes();
+        RebuildGeometry();
         // Radial uses absolute radii (so it stays a true circle), which means
         // the brush has to follow the element size, not just its colors.
         PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(Width) or nameof(Height)) RebuildBrushes();
+            if (e.PropertyName is nameof(Width) or nameof(Height))
+            {
+                RebuildBrushes();
+                RebuildGeometry();
+            }
         };
+    }
+
+    public ShapeKind Kind
+    {
+        get => _kind;
+        set
+        {
+            if (Set(ref _kind, value))
+            {
+                Raise(nameof(UsesCornerRadius));
+                RebuildGeometry();
+            }
+        }
+    }
+
+    public bool UsesCornerRadius => _kind == ShapeKind.Rectangle;
+
+    /// <summary>Normalized (0..1) polygon points, used when <see cref="Kind"/> is Polygon.</summary>
+    public IReadOnlyList<Point> PolygonPoints => _polygonPoints;
+
+    public void SetPolygonPoints(IEnumerable<Point> points)
+    {
+        _polygonPoints.Clear();
+        _polygonPoints.AddRange(points);
+        RebuildGeometry();
     }
 
     public double CornerRadius
     {
         get => _cornerRadius;
-        set => Set(ref _cornerRadius, Math.Max(0, value));
+        set
+        {
+            if (Set(ref _cornerRadius, Math.Max(0, value))) RebuildGeometry();
+        }
     }
 
     public Color FillColor1
@@ -108,6 +158,67 @@ public class ShapeElement : DesignElement
         get => _borderBrush;
         private set => Set(ref _borderBrush, value);
     }
+
+    /// <summary>Geometry bound by the template; rebuilt whenever its inputs change.</summary>
+    public Geometry ShapeGeometry
+    {
+        get => _shapeGeometry;
+        private set => Set(ref _shapeGeometry, value);
+    }
+
+    private void RebuildGeometry()
+    {
+        double w = Math.Max(1, Width);
+        double h = Math.Max(1, Height);
+        Geometry geometry;
+
+        switch (_kind)
+        {
+            case ShapeKind.Ellipse:
+                geometry = new EllipseGeometry(new Rect(0, 0, w, h));
+                break;
+
+            case ShapeKind.Triangle:
+            {
+                var sg = new StreamGeometry();
+                using (var ctx = sg.Open())
+                {
+                    ctx.BeginFigure(new Point(w / 2, 0), true, true);
+                    ctx.LineTo(new Point(w, h), true, false);
+                    ctx.LineTo(new Point(0, h), true, false);
+                }
+                sg.Freeze();
+                geometry = sg;
+                break;
+            }
+
+            case ShapeKind.Polygon:
+            {
+                IReadOnlyList<Point> pts = _polygonPoints.Count >= 3 ? _polygonPoints : DefaultPolygon;
+                var pg = new StreamGeometry();
+                using (var ctx = pg.Open())
+                {
+                    ctx.BeginFigure(new Point(pts[0].X * w, pts[0].Y * h), true, true);
+                    for (int i = 1; i < pts.Count; i++)
+                        ctx.LineTo(new Point(pts[i].X * w, pts[i].Y * h), true, false);
+                }
+                pg.Freeze();
+                geometry = pg;
+                break;
+            }
+
+            default:
+            {
+                double r = Math.Min(_cornerRadius, Math.Min(w, h) / 2);
+                geometry = new RectangleGeometry(new Rect(0, 0, w, h), r, r);
+                break;
+            }
+        }
+
+        if (geometry.CanFreeze) geometry.Freeze();
+        ShapeGeometry = geometry;
+    }
+
 
     private void RebuildBrushes()
     {
@@ -198,25 +309,45 @@ public class ShapeElement : DesignElement
         }
     }
 
-    public override DesignElement Clone() => new ShapeElement
+    public override void CopyStyleTo(DesignElement target)
     {
-        X = X, Y = Y,
-        Width = Width, Height = Height,
-        RotationAngle = RotationAngle,
-        FlipHorizontal = FlipHorizontal, FlipVertical = FlipVertical,
-        Opacity = Opacity,
-        SoftEdge = SoftEdge,
-        ShadowStyle = ShadowStyle,
-        ShadowX = ShadowX, ShadowY = ShadowY,
-        ShadowBlur = ShadowBlur, ShadowOpacity = ShadowOpacity, ShadowColor = ShadowColor,
-        UseOpacityGradient = UseOpacityGradient,
-        OpacityDirection = OpacityDirection,
-        OpacityStart = OpacityStart,
-        OpacityEnd = OpacityEnd,
-        OpacityStrength = OpacityStrength,
-        CornerRadius = CornerRadius,
-        FillColor1 = FillColor1, FillColor2 = FillColor2,
-        IsGradient = IsGradient, GradientType = GradientType, GradientAngle = GradientAngle,
-        StrokeColor = StrokeColor, StrokeThickness = StrokeThickness,
-    };
+        base.CopyStyleTo(target);
+        if (target is not ShapeElement shape) return;
+        shape.FillColor1 = FillColor1;
+        shape.FillColor2 = FillColor2;
+        shape.IsGradient = IsGradient;
+        shape.GradientType = GradientType;
+        shape.GradientAngle = GradientAngle;
+        shape.StrokeColor = StrokeColor;
+        shape.StrokeThickness = StrokeThickness;
+        shape.CornerRadius = CornerRadius;
+    }
+
+    public override DesignElement Clone()
+    {
+        var c = new ShapeElement
+        {
+            X = X, Y = Y,
+            Width = Width, Height = Height,
+            RotationAngle = RotationAngle,
+            FlipHorizontal = FlipHorizontal, FlipVertical = FlipVertical,
+            Opacity = Opacity,
+            SoftEdge = SoftEdge,
+            ShadowStyle = ShadowStyle,
+            ShadowX = ShadowX, ShadowY = ShadowY,
+            ShadowBlur = ShadowBlur, ShadowOpacity = ShadowOpacity, ShadowColor = ShadowColor,
+            UseOpacityGradient = UseOpacityGradient,
+            OpacityDirection = OpacityDirection,
+            OpacityStart = OpacityStart,
+            OpacityEnd = OpacityEnd,
+            OpacityStrength = OpacityStrength,
+            CornerRadius = CornerRadius,
+            Kind = Kind,
+            FillColor1 = FillColor1, FillColor2 = FillColor2,
+            IsGradient = IsGradient, GradientType = GradientType, GradientAngle = GradientAngle,
+            StrokeColor = StrokeColor, StrokeThickness = StrokeThickness,
+        };
+        c.SetPolygonPoints(_polygonPoints);
+        return c;
+    }
 }

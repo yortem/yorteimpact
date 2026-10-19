@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace YorteImpact.Controls;
 
@@ -16,37 +19,112 @@ public partial class ValueSlider : UserControl
     private bool _suppress;
     private double _value;
     private int _decimals = 2;
-
-    // Press-and-drag "scrub" on the dropdown button: hold and move sideways to
-    // grab the value immediately, instead of having to aim at the popup slider.
-    private bool _scrubbing;
-    private bool _didScrub;
-    private bool _popupWasOpen;
-    private double _scrubStartX;
-    private double _scrubStartValue;
+    private static readonly HashSet<ValueSlider> OpenPopups = new();
 
     public ValueSlider()
     {
         InitializeComponent();
         Slider.ValueChanged += OnSliderChanged;
+        InlineSlider.ValueChanged += OnSliderChanged;
         Box.TextChanged += OnBoxChanged;
         Box.KeyDown += OnBoxKeyDown;
+        Box.PreviewMouseLeftButtonUp += Box_MouseUp;
+        Box.LostFocus += (_, _) => CommitBoxText();
         UpBtn.Click += (_, _) => Nudge(+Step);
         DownBtn.Click += (_, _) => Nudge(-Step);
-        DropBtn.Checked += (_, _) => SliderPopup.IsOpen = true;
-        DropBtn.Unchecked += (_, _) => SliderPopup.IsOpen = false;
-        SliderPopup.Closed += (_, _) => DropBtn.IsChecked = false;
-
-        DropBtn.PreviewMouseLeftButtonDown += Drop_MouseDown;
-        DropBtn.PreviewMouseMove += Drop_MouseMove;
-        DropBtn.PreviewMouseLeftButtonUp += Drop_MouseUp;
+        SliderPopup.Opened += (_, _) =>
+        {
+            foreach (var other in OpenPopups.ToList())
+            {
+                if (!ReferenceEquals(other, this)) other.SliderPopup.IsOpen = false;
+            }
+            OpenPopups.Add(this);
+        };
+        SliderPopup.Closed += (_, _) => OpenPopups.Remove(this);
+        Unloaded += (_, _) =>
+        {
+            SliderPopup.IsOpen = false;
+            OpenPopups.Remove(this);
+        };
     }
 
-    public string Caption { get => CaptionText.Text; set => CaptionText.Text = value; }
-    public string Suffix { get => SuffixText.Text; set => SuffixText.Text = value; }
-    public double Minimum { get => Slider.Minimum; set => Slider.Minimum = value; }
-    public double Maximum { get => Slider.Maximum; set => Slider.Maximum = value; }
+    /// <summary>Close every open numeric popup except when the pointer is inside one.</summary>
+    public static void CloseAllPopups()
+    {
+        foreach (var slider in OpenPopups.ToList())
+        {
+            if (slider.SliderPopup.Child?.IsMouseOver == true) continue;
+            slider.SliderPopup.IsOpen = false;
+        }
+    }
+
+    public string Caption
+    {
+        get => CaptionText.Text;
+        set { CaptionText.Text = value; InlineCaption.Text = value; }
+    }
+
+    public string Suffix
+    {
+        get => SuffixText.Text;
+        set { SuffixText.Text = value; UpdateInlineText(); }
+    }
+
+    public double Minimum
+    {
+        get => Slider.Minimum;
+        set { Slider.Minimum = value; InlineSlider.Minimum = value; }
+    }
+
+    public double Maximum
+    {
+        get => Slider.Maximum;
+        set { Slider.Maximum = value; InlineSlider.Maximum = value; }
+    }
+
     public double Step { get; set; } = 1;
+
+    /// <summary>Show a label, live value and a permanent inline slider instead of the popup editor.</summary>
+    public bool Inline
+    {
+        get => _inline;
+        set
+        {
+            _inline = value;
+            CompactRoot.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            InlineRoot.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (value) SliderPopup.IsOpen = false;
+            UpdateInlineText();
+        }
+    }
+
+    private bool _inline;
+
+    /// <summary>
+    /// Optional colored track for the inline slider (for example blue→warm for
+    /// temperature). Null keeps the normal accent track.
+    /// </summary>
+    public Brush? TrackBrush
+    {
+        get => _trackBrush;
+        set
+        {
+            _trackBrush = value;
+            if (InlineSlider == null) return;
+            if (value == null)
+            {
+                InlineSlider.ClearValue(Control.BackgroundProperty);
+                InlineSlider.Style = (Style)Resources["VsSlider"];
+            }
+            else
+            {
+                InlineSlider.Style = (Style)Resources["VsGradientSlider"];
+                InlineSlider.Background = value;
+            }
+        }
+    }
+
+    private Brush? _trackBrush;
 
     private bool _compact;
 
@@ -62,8 +140,6 @@ public partial class ValueSlider : UserControl
             Box.FontSize = value ? 10.5 : 11.5;
             UpBtn.Width = DownBtn.Width = value ? 11 : 15;
             UpBtn.Height = DownBtn.Height = value ? 10 : 12;
-            DropBtn.Width = value ? 13 : 18;
-            DropBtn.Height = value ? 22 : 24;
             SuffixText.FontSize = value ? 9.5 : 10.5;
             SuffixText.Margin = value ? new Thickness(2, 0, 0, 0) : new Thickness(4, 0, 0, 0);
         }
@@ -89,18 +165,46 @@ public partial class ValueSlider : UserControl
     public event EventHandler? ValueChanged;
 
     /// <summary>Set the displayed value; <paramref name="raise"/> fires <see cref="ValueChanged"/>.</summary>
-    public void SetValue(double v, bool raise = false)
+    public void SetValue(double v, bool raise = false, bool updateBox = true, bool forceBox = false)
     {
         v = Math.Clamp(v, Slider.Minimum, Slider.Maximum);
         v = _decimals <= 0 ? Math.Round(v) : Math.Round(v, _decimals);
         _value = v;
         _suppress = true;
         Slider.Value = v;
-        Box.Text = _decimals <= 0
-            ? v.ToString("F0", CultureInfo.InvariantCulture)
-            : v.ToString("0." + new string('#', _decimals), CultureInfo.InvariantCulture);
+        InlineSlider.Value = v;
+        if (updateBox && (!Box.IsKeyboardFocused || forceBox))
+        {
+            Box.Text = _decimals <= 0
+                ? v.ToString("F0", CultureInfo.InvariantCulture)
+                : v.ToString("0." + new string('#', _decimals), CultureInfo.InvariantCulture);
+        }
+        UpdateInlineText();
         _suppress = false;
         if (raise) ValueChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void CommitBoxText()
+    {
+        if (double.TryParse(Box.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+        {
+            if (Math.Abs(v - _value) > 0.000001) SetValue(v, raise: true, forceBox: true);
+            else SetValue(_value, forceBox: true); // normalize formatting without another change event
+        }
+        else
+        {
+            SetValue(_value);
+        }
+    }
+
+    private void UpdateInlineText()
+    {
+        if (InlineValue == null) return;
+        string value = _decimals <= 0
+            ? _value.ToString("F0", CultureInfo.InvariantCulture)
+            : _value.ToString("F" + _decimals, CultureInfo.InvariantCulture);
+        string suffix = SuffixText.Text;
+        InlineValue.Text = string.IsNullOrWhiteSpace(suffix) ? value : $"{value} {suffix}";
     }
 
     private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -113,63 +217,21 @@ public partial class ValueSlider : UserControl
     {
         if (_suppress) return;
         if (double.TryParse(Box.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
-            SetValue(v, raise: true);
+            SetValue(v, raise: true, updateBox: false);
     }
 
     private void OnBoxKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Up) { Nudge(+Step); e.Handled = true; }
         else if (e.Key == Key.Down) { Nudge(-Step); e.Handled = true; }
+        else if (e.Key == Key.Enter) { CommitBoxText(); e.Handled = true; }
     }
 
     private void Nudge(double delta) => SetValue(_value + delta, raise: true);
 
-    // ---- press-and-drag scrub on the dropdown triangle ----
-
-    private void Drop_MouseDown(object sender, MouseButtonEventArgs e)
+    /// <summary>Clicking the number field opens the fine-tune slider; the field keeps focus for typing.</summary>
+    private void Box_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        _scrubbing = true;
-        _didScrub = false;
-        _popupWasOpen = SliderPopup.IsOpen;
-        _scrubStartX = e.GetPosition(this).X;
-        _scrubStartValue = _value;
-
-        DropBtn.CaptureMouse();
-        e.Handled = true;
-    }
-
-    private void Drop_MouseMove(object sender, MouseEventArgs e)
-    {
-        if (!_scrubbing) return;
-        double dx = e.GetPosition(this).X - _scrubStartX;
-        if (Math.Abs(dx) < 2) return;
-
-        if (!_didScrub)
-        {
-            _didScrub = true;
-            if (!SliderPopup.IsOpen) DropBtn.IsChecked = true; // show while scrubbing
-        }
-
-        double span = Slider.Maximum - Slider.Minimum;
-        SetValue(_scrubStartValue + dx * span / 220.0, raise: true);
-    }
-
-    private void Drop_MouseUp(object sender, MouseButtonEventArgs e)
-    {
-        if (!_scrubbing) return;
-        _scrubbing = false;
-        DropBtn.ReleaseMouseCapture();
-
-        if (!_didScrub)
-        {
-            // A plain click toggles on release (opening on mousedown made the
-            // StaysOpen=False popup close under the same click).
-            bool open = !_popupWasOpen;
-            DropBtn.IsChecked = open;
-            SliderPopup.IsOpen = open;
-        }
-        // A drag keeps the popup open for fine-tuning.
-
-        e.Handled = true;
+        if (e.ChangedButton == MouseButton.Left) SliderPopup.IsOpen = true;
     }
 }

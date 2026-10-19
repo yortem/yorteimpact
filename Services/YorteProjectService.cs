@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using YorteImpact.Models;
@@ -32,6 +33,8 @@ public static class YorteProjectService
         public string Name { get; set; } = "Untitled-1";
         public double ArtboardWidth { get; set; }
         public double ArtboardHeight { get; set; }
+        public double? ArtboardX { get; set; } // absent in older files: canvas is centered
+        public double? ArtboardY { get; set; }
         public string? Primary { get; set; } // project primary color (#RRGGBB)
         public string? CanvasColor { get; set; } // canvas paper color (#RRGGBB)
         public bool CanvasTransparent { get; set; } // true = no background (exports transparent)
@@ -41,7 +44,7 @@ public static class YorteProjectService
     public sealed class ElementDto
     {
         public string? Id { get; set; } // stable across undo snapshots (not just files)
-        public string Kind { get; set; } = "shape"; // "shape" | "image"
+        public string Kind { get; set; } = "shape"; // "shape" | "image" | "text" | "paint"
         public double X { get; set; }
         public double Y { get; set; }
         public double Width { get; set; }
@@ -74,6 +77,8 @@ public static class YorteProjectService
         public double GradientAngle { get; set; }
         public string? Stroke { get; set; }
         public double StrokeThickness { get; set; }
+        public string? ShapeKind { get; set; }
+        public List<PolygonPointDto>? PolygonPoints { get; set; }
         // text only
         public string? Text { get; set; }
         public string? FontFamily { get; set; }
@@ -82,6 +87,9 @@ public static class YorteProjectService
         public bool Italic { get; set; }
         public bool Underline { get; set; }
         public bool Strikethrough { get; set; }
+        public bool TextBorder { get; set; }
+        public string? TextBorderColor { get; set; }
+        public double TextBorderThickness { get; set; }
         public string? TextDirection { get; set; }
         public string? TextAlignment { get; set; }
         public double LetterSpacing { get; set; }
@@ -89,6 +97,36 @@ public static class YorteProjectService
         public double WrapWidth { get; set; }
         // image only (embedded PNG)
         public string? ImageBase64 { get; set; }
+        public string? ImageFit { get; set; }
+        public PhotoAdjustDto? Photo { get; set; }
+    }
+
+    public sealed class PhotoAdjustDto
+    {
+        public double Exposure { get; set; }
+        public double Contrast { get; set; }
+        public double Highlights { get; set; }
+        public double Shadows { get; set; }
+        public double Whites { get; set; }
+        public double Blacks { get; set; }
+        public double Temperature { get; set; }
+        public double Tint { get; set; }
+        public double Vibrance { get; set; }
+        public double Saturation { get; set; }
+        public double Clarity { get; set; }
+        public double Vignette { get; set; }
+        public double Grain { get; set; }
+        public double Blur { get; set; }
+        public double Sharpen { get; set; }
+        public double Glow { get; set; }
+        public double ToneAmount { get; set; }
+        public string? ToneColor { get; set; }
+    }
+
+    public sealed class PolygonPointDto
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     // ---------------- save ----------------
@@ -101,6 +139,8 @@ public static class YorteProjectService
             Name = doc.DocumentName,
             ArtboardWidth = doc.ArtboardWidth,
             ArtboardHeight = doc.ArtboardHeight,
+            ArtboardX = doc.ArtboardX,
+            ArtboardY = doc.ArtboardY,
             CanvasColor = ToHex(doc.CanvasColor),
             CanvasTransparent = doc.CanvasTransparent,
         };
@@ -148,12 +188,25 @@ public static class YorteProjectService
                 dto.IsGradient = s.IsGradient; dto.GradientAngle = s.GradientAngle;
                 dto.GradientType = s.GradientType.ToString();
                 dto.Stroke = ToHex(s.StrokeColor); dto.StrokeThickness = s.StrokeThickness;
+                dto.ShapeKind = s.Kind.ToString();
+                if (s.Kind == ShapeKind.Polygon)
+                    dto.PolygonPoints = s.PolygonPoints
+                        .Select(p => new PolygonPointDto { X = p.X, Y = p.Y })
+                        .ToList();
                 break;
             case ImageElement im:
                 dto.Kind = "image";
                 dto.CornerRadius = im.CornerRadius;
+                dto.ImageFit = im.FitMode.ToString();
                 if (im.Source is BitmapSource bmp)
                     dto.ImageBase64 = Convert.ToBase64String(EncodePng(bmp));
+                if (!im.Adjustments.IsDefault)
+                    dto.Photo = ToDto(im.Adjustments);
+                break;
+            case PaintLayerElement paint:
+                dto.Kind = "paint";
+                if (paint.Source is BitmapSource paintBmp)
+                    dto.ImageBase64 = Convert.ToBase64String(EncodePng(paintBmp));
                 break;
             case TextElement t:
                 dto.Kind = "text";
@@ -164,6 +217,9 @@ public static class YorteProjectService
                 dto.IsGradient = t.IsGradient; dto.GradientAngle = t.TextGradientAngle;
                 dto.Bold = t.IsBold; dto.Italic = t.IsItalic;
                 dto.Underline = t.IsUnderline; dto.Strikethrough = t.IsStrikethrough;
+                dto.TextBorder = t.HasBorder;
+                dto.TextBorderColor = ToHex(t.BorderColor);
+                dto.TextBorderThickness = t.BorderThickness;
                 dto.TextDirection = t.Direction.ToString();
                 dto.TextAlignment = t.Alignment.ToString();
                 dto.LetterSpacing = t.LetterSpacing; dto.LineSpacing = t.LineSpacing;
@@ -187,8 +243,10 @@ public static class YorteProjectService
     public static void ApplyTo(ProjectFile file, DesignDocument doc)
     {
         doc.NewCanvas(file.Name,
-            Math.Clamp(file.ArtboardWidth, 50, 8000),
-            Math.Clamp(file.ArtboardHeight, 50, 8000));
+            Math.Clamp(file.ArtboardWidth, 1, 8000),
+            Math.Clamp(file.ArtboardHeight, 1, 8000));
+        if (file.ArtboardX is double ax && file.ArtboardY is double ay)
+            doc.SetArtboardRect(new Rect(ax, ay, doc.ArtboardWidth, doc.ArtboardHeight));
 
         doc.CanvasColor = FromHex(file.CanvasColor, Colors.White);
         doc.CanvasTransparent = file.CanvasTransparent;
@@ -200,6 +258,7 @@ public static class YorteProjectService
                 "shape" => new ShapeElement
                 {
                     CornerRadius = dto.CornerRadius,
+                    Kind = ParseShapeKind(dto.ShapeKind),
                     FillColor1 = FromHex(dto.Fill1, Colors.Blue),
                     FillColor2 = FromHex(dto.Fill2, Colors.LightBlue),
                     IsGradient = dto.IsGradient, GradientAngle = dto.GradientAngle,
@@ -208,6 +267,7 @@ public static class YorteProjectService
                     StrokeThickness = dto.StrokeThickness,
                 },
                 "image" => LoadImage(dto),
+                "paint" => LoadPaintLayer(dto),
                 "text" => new TextElement
                 {
                     Text = dto.Text ?? "",
@@ -221,6 +281,9 @@ public static class YorteProjectService
                     IsItalic = dto.Italic,
                     IsUnderline = dto.Underline,
                     IsStrikethrough = dto.Strikethrough,
+                    HasBorder = dto.TextBorder,
+                    BorderColor = FromHex(dto.TextBorderColor, Colors.Black),
+                    BorderThickness = dto.TextBorderThickness > 0 ? dto.TextBorderThickness : 1,
                     Direction = ParseTextDirection(dto.TextDirection),
                     Alignment = ParseTextAlign(dto.TextAlignment),
                     LetterSpacing = dto.LetterSpacing,
@@ -249,6 +312,15 @@ public static class YorteProjectService
             el.OpacityEnd = dto.OpacityGradient && dto.OpacityEnd <= 0 ? 100 : dto.OpacityEnd;
             el.OpacityStrength = dto.OpacityGradient && dto.OpacityStrength <= 0 ? 100 : dto.OpacityStrength;
             if (el is ImageElement im) im.CornerRadius = dto.CornerRadius;
+            if (el is ImageElement image && dto.Photo is { } photo)
+            {
+                FromDto(photo, image.Adjustments);
+                image.RefreshPhotoPreview();
+            }
+            if (el is ImageElement fitted)
+                fitted.FitMode = ParseImageFit(dto.ImageFit);
+            if (el is ShapeElement shp && dto.PolygonPoints is { Count: >= 3 })
+                shp.SetPolygonPoints(dto.PolygonPoints.Select(p => new Point(p.X, p.Y)));
             if (el is TextElement tx) tx.EnableAnchoring();
             doc.Elements.Add(el);
         }
@@ -259,9 +331,22 @@ public static class YorteProjectService
     private static ImageElement? LoadImage(ElementDto dto)
     {
         if (string.IsNullOrEmpty(dto.ImageBase64)) return null;
+        var bmp = DecodeBitmap(dto.ImageBase64);
+        return bmp == null ? null : new ImageElement { Source = bmp };
+    }
+
+    private static PaintLayerElement? LoadPaintLayer(ElementDto dto)
+    {
+        if (string.IsNullOrEmpty(dto.ImageBase64)) return new PaintLayerElement();
+        var bmp = DecodeBitmap(dto.ImageBase64);
+        return bmp == null ? null : new PaintLayerElement { Source = bmp };
+    }
+
+    private static BitmapSource? DecodeBitmap(string base64)
+    {
         try
         {
-            byte[] bytes = Convert.FromBase64String(dto.ImageBase64);
+            byte[] bytes = Convert.FromBase64String(base64);
             using var ms = new MemoryStream(bytes);
             var bmp = new BitmapImage();
             bmp.BeginInit();
@@ -269,12 +354,56 @@ public static class YorteProjectService
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.EndInit();
             bmp.Freeze();
-            return new ImageElement { Source = bmp };
+            return bmp;
         }
         catch { return null; } // skip corrupt image, keep the rest
     }
 
     // ---------------- helpers ----------------
+
+    private static PhotoAdjustDto ToDto(PhotoAdjustments a) => new()
+    {
+        Exposure = a.Exposure,
+        Contrast = a.Contrast,
+        Highlights = a.Highlights,
+        Shadows = a.Shadows,
+        Whites = a.Whites,
+        Blacks = a.Blacks,
+        Temperature = a.Temperature,
+        Tint = a.Tint,
+        Vibrance = a.Vibrance,
+        Saturation = a.Saturation,
+        Clarity = a.Clarity,
+        Vignette = a.Vignette,
+        Grain = a.Grain,
+        Blur = a.Blur,
+        Sharpen = a.Sharpen,
+        Glow = a.Glow,
+        ToneAmount = a.ToneAmount,
+        ToneColor = ToHex(a.ToneColor),
+    };
+
+    private static void FromDto(PhotoAdjustDto dto, PhotoAdjustments a)
+    {
+        a.Exposure = dto.Exposure;
+        a.Contrast = dto.Contrast;
+        a.Highlights = dto.Highlights;
+        a.Shadows = dto.Shadows;
+        a.Whites = dto.Whites;
+        a.Blacks = dto.Blacks;
+        a.Temperature = dto.Temperature;
+        a.Tint = dto.Tint;
+        a.Vibrance = dto.Vibrance;
+        a.Saturation = dto.Saturation;
+        a.Clarity = dto.Clarity;
+        a.Vignette = dto.Vignette;
+        a.Grain = dto.Grain;
+        a.Blur = dto.Blur;
+        a.Sharpen = dto.Sharpen;
+        a.Glow = dto.Glow;
+        a.ToneAmount = dto.ToneAmount;
+        a.ToneColor = FromHex(dto.ToneColor, PhotoAdjustments.DefaultToneColor);
+    }
 
     public static byte[] EncodePng(BitmapSource bmp)
     {
@@ -290,8 +419,14 @@ public static class YorteProjectService
     private static GradientType ParseGradientType(string? value) =>
         Enum.TryParse<GradientType>(value, ignoreCase: true, out var t) ? t : GradientType.Linear;
 
+    private static ShapeKind ParseShapeKind(string? value) =>
+        Enum.TryParse<ShapeKind>(value, ignoreCase: true, out var k) ? k : ShapeKind.Rectangle;
+
     private static ShadowStyle ParseShadowStyle(string? value) =>
         Enum.TryParse<ShadowStyle>(value, ignoreCase: true, out var s) ? s : ShadowStyle.None;
+
+    private static ImageFitMode ParseImageFit(string? value) =>
+        Enum.TryParse<ImageFitMode>(value, ignoreCase: true, out var f) ? f : ImageFitMode.Fill;
 
     private static OpacityFadeDirection ParseOpacityDirection(string? value) =>
         Enum.TryParse<OpacityFadeDirection>(value, ignoreCase: true, out var d)

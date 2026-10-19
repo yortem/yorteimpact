@@ -10,17 +10,22 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Open the editor straight onto the configured default canvas
-        // (2000 x 2000 unless changed in Settings). The New Canvas dialog
-        // is only shown when the user explicitly picks File > New.
+        // Start on the configured default canvas, unless the shell passed a
+        // project file (Open with / command line) to open as the first tab.
         var settings = AppSettings.Load();
         var background = settings.DefaultCanvasTransparent ? Colors.Transparent : Colors.White;
+
+        string? startupProject = e.Args.FirstOrDefault(a =>
+            !string.IsNullOrWhiteSpace(a) &&
+            string.Equals(System.IO.Path.GetExtension(a), ".yimpact", StringComparison.OrdinalIgnoreCase) &&
+            System.IO.File.Exists(a));
 
         var window = new MainWindow(
             settings.DefaultCanvasWidth,
             settings.DefaultCanvasHeight,
             background,
-            settings.DefaultCanvasTransparent);
+            settings.DefaultCanvasTransparent,
+            startupProject);
 
         MainWindow = window;
         ShutdownMode = ShutdownMode.OnMainWindowClose;

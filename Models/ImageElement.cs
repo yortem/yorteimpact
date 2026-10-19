@@ -1,7 +1,20 @@
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using YorteImpact.Services;
 
 namespace YorteImpact.Models;
+
+/// <summary>How the raster fills the element box when the box is resized.</summary>
+public enum ImageFitMode
+{
+    /// <summary>Fill the box and crop the overflow (the original behavior).</summary>
+    Fill,
+    /// <summary>Show the whole raster with empty space around it.</summary>
+    Fit,
+    /// <summary>Stretch the raster to the box, distorting the aspect ratio.</summary>
+    Stretch,
+}
 
 /// <summary>
 /// Raster image element. Rendered with an ImageBrush inside a Border so
@@ -10,14 +23,40 @@ namespace YorteImpact.Models;
 public class ImageElement : DesignElement
 {
     private ImageSource? _source;
+    private BitmapSource? _displaySource;
+    private readonly PhotoAdjustments _adjustments = new();
     private string? _sourcePath;
     private double _cornerRadius;
+    private ImageFitMode _fitMode = ImageFitMode.Fill;
     private Brush? _imageBrush;
 
     public ImageSource? Source
     {
         get => _source;
-        set { if (Set(ref _source, value)) RebuildBrush(); }
+        set
+        {
+            if (Equals(_source, value)) return;
+            _source = value;
+            _displaySource = null;
+            RefreshPhotoPreview();
+            Raise(nameof(Source));
+        }
+    }
+
+    /// <summary>Non-destructive photo settings rendered on top of <see cref="Source"/>.</summary>
+    public PhotoAdjustments Adjustments => _adjustments;
+
+    /// <summary>Adjusted raster used for display, sampling and export.</summary>
+    public ImageSource? DisplaySource => _displaySource ?? _source;
+
+    /// <summary>Rebuild the adjusted raster after photo settings or the base image changed.</summary>
+    public void RefreshPhotoPreview()
+    {
+        _displaySource = _adjustments.IsDefault || _source is not BitmapSource bmp
+            ? null
+            : PhotoAdjustmentService.Render(bmp, _adjustments);
+        RebuildBrush();
+        Raise(nameof(DisplaySource));
     }
 
     /// <summary>Original file path, if loaded from disk. Null for clipboard pastes.</summary>
@@ -33,6 +72,60 @@ public class ImageElement : DesignElement
         set => Set(ref _cornerRadius, Math.Max(0, value));
     }
 
+    /// <summary>How the image fills the element box when the object is resized.</summary>
+    public ImageFitMode FitMode
+    {
+        get => _fitMode;
+        set
+        {
+            if (Set(ref _fitMode, value)) RebuildBrush();
+        }
+    }
+
+    /// <summary>Source crop and scale used by the current fit mode.</summary>
+    public (double ScaleX, double ScaleY, double OffsetX, double OffsetY,
+            int SrcX, int SrcY, int SrcW, int SrcH) GetFitGeometry(BitmapSource bmp)
+    {
+        int pw = bmp.PixelWidth, ph = bmp.PixelHeight;
+        if (pw < 1 || ph < 1) return (1, 1, 0, 0, 0, 0, 1, 1);
+
+        if (_fitMode == ImageFitMode.Fit)
+        {
+            double scale = Math.Min(Width / pw, Height / ph);
+            return (scale, scale,
+                (Width - pw * scale) / 2, (Height - ph * scale) / 2,
+                0, 0, pw, ph);
+        }
+
+        if (_fitMode == ImageFitMode.Stretch)
+            return (Width / pw, Height / ph, 0, 0, 0, 0, pw, ph);
+
+        double fill = Math.Max(Width / pw, Height / ph);
+        int cx = Math.Clamp((int)Math.Floor((pw * fill - Width) / 2 / fill), 0, pw - 1);
+        int cy = Math.Clamp((int)Math.Floor((ph * fill - Height) / 2 / fill), 0, ph - 1);
+        int cw = Math.Clamp((int)Math.Ceiling(Width / fill), 1, pw - cx);
+        int ch = Math.Clamp((int)Math.Ceiling(Height / fill), 1, ph - cy);
+        return (fill, fill, (Width - pw * fill) / 2, (Height - ph * fill) / 2,
+            cx, cy, cw, ch);
+    }
+
+    /// <summary>Map an element-local point to a source pixel for the current fit mode.</summary>
+    public bool TryMapToSource(Point local, out double sourceX, out double sourceY,
+        out double pixelsPerUnit)
+    {
+        sourceX = sourceY = 0;
+        pixelsPerUnit = 1;
+        if (_source is not BitmapSource bmp || bmp.PixelWidth < 1 || bmp.PixelHeight < 1)
+            return false;
+
+        var g = GetFitGeometry(bmp);
+        sourceX = (local.X - g.OffsetX) / Math.Max(0.0001, g.ScaleX);
+        sourceY = (local.Y - g.OffsetY) / Math.Max(0.0001, g.ScaleY);
+        pixelsPerUnit = 1 / Math.Max(0.0001, (g.ScaleX + g.ScaleY) / 2);
+        return sourceX >= 0 && sourceY >= 0 &&
+               sourceX <= bmp.PixelWidth && sourceY <= bmp.PixelHeight;
+    }
+
     /// <summary>Brush used by the DataTemplate (ImageBrush wrapping Source).</summary>
     public Brush? ImageBrush
     {
@@ -42,14 +135,20 @@ public class ImageElement : DesignElement
 
     private void RebuildBrush()
     {
-        if (Source is null) { ImageBrush = null; return; }
-        var b = new ImageBrush(Source)
+        var source = DisplaySource;
+        if (source is null) { ImageBrush = null; return; }
+        var b = new ImageBrush(source)
         {
-            Stretch = Stretch.UniformToFill,
+            Stretch = _fitMode switch
+            {
+                ImageFitMode.Fit => Stretch.Uniform,
+                ImageFitMode.Stretch => Stretch.Fill,
+                _ => Stretch.UniformToFill,
+            },
             AlignmentX = AlignmentX.Center,
             AlignmentY = AlignmentY.Center,
         };
-        if (b.CanFreeze) b.Freeze();
+        if (b.CanFreeze && source is not WriteableBitmap) b.Freeze();
         ImageBrush = b;
     }
 
@@ -67,6 +166,16 @@ public class ImageElement : DesignElement
             Width = Math.Max(1, bmp.PixelWidth * scale);
             Height = Math.Max(1, bmp.PixelHeight * scale);
         }
+    }
+
+    public override void CopyStyleTo(DesignElement target)
+    {
+        base.CopyStyleTo(target);
+        if (target is not ImageElement image) return;
+        image.CornerRadius = CornerRadius;
+        image.FitMode = FitMode;
+        image.Adjustments.CopyFrom(Adjustments);
+        image.RefreshPhotoPreview();
     }
 
     public override DesignElement Clone()
@@ -89,7 +198,10 @@ public class ImageElement : DesignElement
         OpacityStrength = OpacityStrength,
             Source = Source, SourcePath = SourcePath,
             CornerRadius = CornerRadius,
+            FitMode = FitMode,
         };
+        c.Adjustments.CopyFrom(Adjustments);
+        c.RefreshPhotoPreview();
         return c;
     }
 }

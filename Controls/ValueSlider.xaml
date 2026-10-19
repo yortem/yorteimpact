@@ -9,6 +9,14 @@
       <Setter Property="Foreground" Value="#8EA0B4"/><Setter Property="FontSize" Value="10.5"/>
       <Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="0,0,6,0"/>
     </Style>
+    <Style x:Key="VsInlineCaption" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#C7D6E6"/><Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="VsInlineValue" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#E6EEF6"/><Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="HorizontalAlignment" Value="Right"/><Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
     <Style x:Key="VsSpin" TargetType="TextBox">
       <Setter Property="Width" Value="40"/><Setter Property="Background" Value="#04070D"/>
       <Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="Transparent"/>
@@ -31,24 +39,6 @@
       <Style.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#1E2E42"/></Trigger>
       </Style.Triggers>
-    </Style>
-    <Style x:Key="VsDrop" TargetType="ToggleButton">
-      <Setter Property="Width" Value="18"/><Setter Property="Height" Value="24"/>
-      <Setter Property="Background" Value="#04070D"/><Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Margin" Value="2,0,0,0"/><Setter Property="Focusable" Value="False"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ToggleButton">
-            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="2">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#1E2E42"/></Trigger>
-              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Bd" Property="Background" Value="#2E9BFF"/></Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
     </Style>
 
     <!-- Compact dark slider (track + accent fill + round thumb) -->
@@ -92,10 +82,49 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- Gradient-track variant used by color-direction sliders -->
+    <Style x:Key="VsGradientSlider" TargetType="Slider">
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Slider">
+            <Grid>
+              <Border Height="4" CornerRadius="1" Background="{TemplateBinding Background}"
+                      VerticalAlignment="Center" Margin="6,0"/>
+              <Track x:Name="PART_Track">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Command="Slider.DecreaseLarge">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.DecreaseRepeatButton>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Command="Slider.IncreaseLarge">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.IncreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb Width="13" Height="13">
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Ellipse Fill="{StaticResource VsAccent}" Stroke="#0B121B" StrokeThickness="1"/>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </UserControl.Resources>
 
   <Grid>
-    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <StackPanel x:Name="CompactRoot" Orientation="Horizontal" VerticalAlignment="Center">
       <TextBlock x:Name="CaptionText" Style="{StaticResource VsCaption}"/>
       <TextBox x:Name="Box" Style="{StaticResource VsSpin}"/>
       <StackPanel Margin="2,0,0,0">
@@ -106,14 +135,23 @@
           <Path Data="M0,1 L8,1 L4,6 Z" Fill="{StaticResource VsIcon}" Width="8" Height="6" Stretch="Uniform"/>
         </RepeatButton>
       </StackPanel>
-      <ToggleButton x:Name="DropBtn" Style="{StaticResource VsDrop}">
-        <Path Data="M0,2 L10,2 L5,8 Z" Fill="{StaticResource VsIcon}" Width="10" Height="8" Stretch="Uniform"/>
-      </ToggleButton>
       <TextBlock x:Name="SuffixText" Style="{StaticResource VsCaption}" Margin="4,0,0,0"/>
     </StackPanel>
 
-    <Popup x:Name="SliderPopup" PlacementTarget="{Binding ElementName=DropBtn}"
-           Placement="Bottom" HorizontalOffset="-92" VerticalOffset="2"
+    <Grid x:Name="InlineRoot" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <Grid>
+        <TextBlock x:Name="InlineCaption" Style="{StaticResource VsInlineCaption}"/>
+        <TextBlock x:Name="InlineValue" Style="{StaticResource VsInlineValue}"/>
+      </Grid>
+      <Slider x:Name="InlineSlider" Grid.Row="1" Style="{StaticResource VsSlider}" Margin="0,3,0,0"/>
+    </Grid>
+
+    <Popup x:Name="SliderPopup" PlacementTarget="{Binding ElementName=Box}"
+           Placement="Bottom" HorizontalOffset="-80" VerticalOffset="2"
            StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
       <Border Background="#111A27" BorderBrush="#223248" BorderThickness="1"
               CornerRadius="4" Padding="10,8" Margin="0,4,8,8">

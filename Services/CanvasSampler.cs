@@ -55,7 +55,7 @@ public static class CanvasSampler
     /// <summary>Exact displayed pixel of an image element (UniformToFill crop aware).</summary>
     public static Color SampleImagePixel(ImageElement im, Point canvasPoint, Color behind)
     {
-        if (im.Source is not BitmapSource src || src.PixelWidth <= 0 || src.PixelHeight <= 0)
+        if (im.DisplaySource is not BitmapSource src || src.PixelWidth <= 0 || src.PixelHeight <= 0)
             return behind;
         var local = ToLocalUnrotated(im, canvasPoint);
         if (im.FlipHorizontal) local.X = im.Width - local.X;
@@ -65,9 +65,9 @@ public static class CanvasSampler
             return behind;
 
         int pw = src.PixelWidth, ph = src.PixelHeight;
-        double s = Math.Max(im.Width / pw, im.Height / ph);
-        int sx = Math.Clamp((int)(((pw * s - im.Width) / 2 + local.X) / s), 0, pw - 1);
-        int sy = Math.Clamp((int)(((ph * s - im.Height) / 2 + local.Y) / s), 0, ph - 1);
+        if (!im.TryMapToSource(local, out double fx, out double fy, out _)) return behind;
+        int sx = Math.Clamp((int)fx, 0, pw - 1);
+        int sy = Math.Clamp((int)fy, 0, ph - 1);
         var one = new CroppedBitmap(src, new Int32Rect(sx, sy, 1, 1));
         var fmt = new FormatConvertedBitmap(one, PixelFormats.Pbgra32, null, 0);
         var bytes = new byte[4];
@@ -92,9 +92,9 @@ public static class CanvasSampler
         if (!InRoundedRect(local.X, local.Y, im.Width, im.Height, r)) return false;
 
         int pw = src.PixelWidth, ph = src.PixelHeight;
-        double s = Math.Max(im.Width / pw, im.Height / ph);
-        sx = Math.Clamp((int)(((pw * s - im.Width) / 2 + local.X) / s), 0, pw - 1);
-        sy = Math.Clamp((int)(((ph * s - im.Height) / 2 + local.Y) / s), 0, ph - 1);
+        if (!im.TryMapToSource(local, out double fx, out double fy, out _)) return false;
+        sx = Math.Clamp((int)fx, 0, pw - 1);
+        sy = Math.Clamp((int)fy, 0, ph - 1);
         return true;
     }
 
