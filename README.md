@@ -37,6 +37,7 @@ dotnet run
 The editor opens on a **default canvas** (2000 × 2000, white). Change the
 startup default in **Settings** (the Settings button in the top bar, or
 `Ctrl+,`); the value is stored in `%AppData%\YorteImpact\settings.json`.
+Settings also includes a direct link to the project's GitHub repository.
 
 The editor also remembers its window size, position and maximized state
 between launches.
@@ -115,8 +116,9 @@ Shows the active tool's options:
 
 - **Pick** — transparency, corner radius, soft edge, order, alignment and
   flip. The controls appear only when an object is selected; corner radius is
-  available for rectangles and images.
-- **Slice** — the *Add slice* toggle.
+  available for rectangles and images. Turn on **Individual** to set the
+  top-left, top-right, bottom-right and bottom-left radii separately.
+- **Slice** — rectangular or Bezier selection, plus the *Add slice* toggle.
 - **Background remover** — tolerance, contiguous mode and *Auto*.
 - **Paintbrush** — style, target, color, size, opacity, soft edge, smoothing
   and presets.
@@ -130,7 +132,8 @@ Shows the active tool's options:
 - **Path drawing** — shape type (rectangle, ellipse, triangle, polygon), a
   drawing ratio lock (keeps new shapes square/circular), fill color and
   solid/gradient mode, corner radius for rectangles, border and shadow for the
-  next shape (or the selected shape). Shapes can be as small as 1 px, so thin
+  next shape (or the selected shape). **Individual** opens per-corner radii.
+  Shapes can be as small as 1 px, so thin
   lines and small squares are allowed.
 
 ### Inspector
@@ -218,7 +221,11 @@ shadow settings, including after restarting the app.
 
 Choose **Line**, **Polyline** or **Freehand** in the Line and Arrow tool's top
 bar. Drag to draw a straight line; click to add polyline corners, then
-double-click or press Enter to finish (Esc cancels); drag to draw freehand.
+  double-click or press Enter to finish (Esc cancels); drag to draw freehand.
+  A size tip shows the current straight segment's horizontal and vertical span
+  while drawing a line or positioning the next polyline point. Hold Shift to
+  snap straight line segments to 15-degree angles; hold Ctrl to snap endpoints
+  to visible guides, canvas edges/center and object edges/centers.
 The **Curve** slider controls freehand smoothing. Set color, width, line pattern,
 the start and end markers, and shadow before drawing. Each endpoint can use no
 marker, an open arrowhead, a filled triangular arrowhead, a visible round dot or
@@ -384,17 +391,22 @@ used it.
 
 ### Slice
 
-Each drag replaces the slice; enable **Add slice** to accumulate several
-regions. Click a region to activate it.
+Choose the rectangle icon and drag for a rectangular slice, or the freeform
+icon and click to place exact corner points connected by straight segments.
+Close it by clicking the first point,
+double-clicking, or pressing Enter; Esc cancels and Backspace removes the last
+anchor. Bezier selections copy with transparent pixels outside the path.
+Each new slice replaces the prior slice; enable **Add slice** to accumulate
+several regions. Click a region to activate it.
 
 - `Ctrl+C` copies the active slice area.
 - `Ctrl+X` cuts it out.
-- `Ctrl+R` crops the project to the active slice (content outside the slice
-  stays in the document).
+- `Ctrl+R` crops the project to the active slice bounds (content outside the
+  crop stays in the document).
 - `Delete` cuts the slice area out of the selected object.
-- `Space` shows/hides the slice markers (hidden markers are inactive).
+- `Space` shows/hides the slice markers (hidden markers are inactive). Slices
+  remain visible when switching to Pick or another tool; Esc clears them.
 
-Leaving the Slice tool hides and resets the markers.
 
 ### Copy / Cut / Paste
 
@@ -451,8 +463,8 @@ Leaving the Slice tool hides and resets the markers.
   columns, margin, gutter and opacity, plus center-line and visibility toggles.
   Guides are visual-only and never exported.
 - `+` / `-` (main keyboard and numpad) step through a zoom ladder that always
-  includes 100%.
-- `Ctrl+0` resets to 100%; `Ctrl+wheel` zooms at the cursor.
+  includes 100%, centering the point under the pointer in the viewport.
+- `Ctrl+0` resets to 100%; `Ctrl+wheel` centers the point under the cursor.
 - Canvases auto-fit on open.
 - When the whole canvas fits, scrolling is disabled; otherwise it spans the
   canvas.
@@ -518,7 +530,7 @@ the exact visual reference.
 | `Ctrl+R` | Fit canvas to selection or active slice |
 | `Ctrl+0` | Zoom to 100% |
 | `+` / `-` | Zoom step |
-| `Ctrl+wheel` | Zoom at cursor |
+| `Ctrl+wheel` | Center the cursor point while zooming |
 | `Delete` / `Backspace` | Delete (cuts the slice when one is active) |
 | `Space` | Show/hide slice markers |
 | Arrow keys | Nudge 1px (Shift = 10px) |

@@ -73,8 +73,9 @@ public static class SliceCutService
     /// baked to pixels at 2x, the overlapped part becomes transparent.
     /// Requires partial overlap of an axis-aligned shape (caller checks).
     /// </summary>
-    public static ImageElement CutShapeFlat(ShapeElement el, Rect sliceCanvas)
+    public static ImageElement CutShapeFlat(ShapeElement el, SliceRegion slice)
     {
+        var sliceCanvas = slice.Rect;
         const double scale = 2.0; // crisp pixels regardless of view zoom
 
         // Render the shape exactly as the canvas template draws it.
@@ -107,19 +108,25 @@ public static class SliceCutService
         rtb.Render(border);
         rtb.Freeze();
 
-        var wb = new WriteableBitmap(rtb);
-
-        // Erase the overlapped part (element-local DIPs -> bitmap pixels).
-        var local = Rect.Intersect(el.Bounds, sliceCanvas);
-        int x = (int)Math.Floor((local.X - el.X) * scale);
-        int y = (int)Math.Floor((local.Y - el.Y) * scale);
-        int w = (int)Math.Ceiling(local.Width * scale);
-        int h = (int)Math.Ceiling(local.Height * scale);
-        x = Math.Clamp(x, 0, wb.PixelWidth - 1);
-        y = Math.Clamp(y, 0, wb.PixelHeight - 1);
-        w = Math.Clamp(w, 1, wb.PixelWidth - x);
-        h = Math.Clamp(h, 1, wb.PixelHeight - y);
-        wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * w * 4], w * 4, 0);
+        WriteableBitmap wb;
+        if (slice.SelectionGeometry != null)
+        {
+            wb = new WriteableBitmap(SliceExportService.ApplySliceMask(rtb, slice, el.Bounds, inverse: true));
+        }
+        else
+        {
+            wb = new WriteableBitmap(rtb);
+            var local = Rect.Intersect(el.Bounds, sliceCanvas);
+            int x = (int)Math.Floor((local.X - el.X) * scale);
+            int y = (int)Math.Floor((local.Y - el.Y) * scale);
+            int w = (int)Math.Ceiling(local.Width * scale);
+            int h = (int)Math.Ceiling(local.Height * scale);
+            x = Math.Clamp(x, 0, wb.PixelWidth - 1);
+            y = Math.Clamp(y, 0, wb.PixelHeight - 1);
+            w = Math.Clamp(w, 1, wb.PixelWidth - x);
+            h = Math.Clamp(h, 1, wb.PixelHeight - y);
+            wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * w * 4], w * 4, 0);
+        }
 
         var img = new ImageElement
         {
@@ -201,8 +208,9 @@ public static class SliceCutService
     /// Accounts for the UniformToFill + center-crop display mapping, so the
     /// hole lines up with the dashed slice rect on screen.
     /// </summary>
-    public static PunchResult EraseImageRegion(ImageElement el, Rect sliceCanvas)
+    public static PunchResult EraseImageRegion(ImageElement el, SliceRegion slice)
     {
+        var sliceCanvas = slice.Rect;
         if (!IsAxisAligned(el)) return PunchResult.Unsupported;
         if (el.Source is not BitmapSource src || src.PixelWidth <= 0 || src.PixelHeight <= 0)
             return PunchResult.Unsupported;
@@ -212,8 +220,9 @@ public static class SliceCutService
             return PunchResult.NoIntersection;
 
         // Fully covered -> caller deletes the whole element.
-        if (local.X <= el.X + 0.5 && local.Y <= el.Y + 0.5 &&
-            local.Right >= el.X + el.Width - 0.5 && local.Bottom >= el.Y + el.Height - 0.5)
+        if (slice.SelectionGeometry?.FillContains(new RectangleGeometry(el.Bounds)) == true || (slice.SelectionGeometry == null &&
+            local.X <= el.X + 0.5 && local.Y <= el.Y + 0.5 &&
+            local.Right >= el.X + el.Width - 0.5 && local.Bottom >= el.Y + el.Height - 0.5))
             return PunchResult.FullyCovered;
 
         // UniformToFill mapping: source pixels -> DIPs, centered crop.
@@ -237,8 +246,24 @@ public static class SliceCutService
             : new FormatConvertedBitmap(src, PixelFormats.Pbgra32, null, 0);
 
         var wb = new WriteableBitmap(formatted);
-        int stride = w * 4;
-        wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * stride], stride, 0);
+        if (slice.SelectionGeometry == null)
+        {
+            int stride = w * 4;
+            wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * stride], stride, 0);
+        }
+        else
+        {
+            var pixels = new byte[src.PixelHeight * src.PixelWidth * 4];
+            wb.CopyPixels(pixels, src.PixelWidth * 4, 0);
+            for (int py = y; py < y + h; py++)
+            for (int px = x; px < x + w; px++)
+            {
+                var canvasPoint = new Point(el.X + (px * s - offX) + s / 2, el.Y + (py * s - offY) + s / 2);
+                if (slice.SelectionGeometry.FillContains(canvasPoint))
+                    pixels[py * src.PixelWidth * 4 + px * 4 + 3] = 0;
+            }
+            wb.WritePixels(new Int32Rect(0, 0, wb.PixelWidth, wb.PixelHeight), pixels, wb.PixelWidth * 4, 0);
+        }
         el.Source = wb; // setter rebuilds the ImageBrush
         TrimToOpaqueBounds(el);
         return PunchResult.Partial;

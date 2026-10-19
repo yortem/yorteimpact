@@ -10,7 +10,7 @@
         PreviewKeyDown="Window_PreviewKeyDown">
 
   <WindowChrome.WindowChrome>
-    <WindowChrome CaptionHeight="40" ResizeBorderThickness="6" GlassFrameThickness="0"
+    <WindowChrome CaptionHeight="40" ResizeBorderThickness="10" GlassFrameThickness="0"
                   CornerRadius="0" UseAeroCaptionButtons="False"/>
   </WindowChrome.WindowChrome>
 
@@ -112,7 +112,7 @@
 
     <DataTemplate DataType="{x:Type models:ImageElement}">
       <Border Width="{Binding Width}" Height="{Binding Height}"
-              CornerRadius="{Binding CornerRadius}"
+              CornerRadius="{Binding RenderCornerRadius}"
               Opacity="{Binding OpacityFactor}"
               OpacityMask="{Binding OpacityMaskBrush}"
               Effect="{Binding ShadowEffect}"
@@ -1332,9 +1332,23 @@
                                     Minimum="0" Maximum="100" Margin="0,0,16,0"
                                     ValueChanged="AttrOpacity_ValueChanged"/>
 
-              <controls:ValueSlider Decimals="0" x:Name="AttrCorner" Caption="Corner" Suffix="px"
-                                    Minimum="0" Maximum="250" Margin="0,0,16,0"
-                                    ValueChanged="AttrCorner_ValueChanged"/>
+              <StackPanel Margin="0,0,16,0">
+                <StackPanel Orientation="Horizontal">
+                  <controls:ValueSlider Decimals="0" x:Name="AttrCorner" Caption="Corner" Suffix="px"
+                                        Minimum="0" Maximum="250" Margin="0,0,8,0"
+                                        ValueChanged="AttrCorner_ValueChanged"/>
+                  <CheckBox x:Name="AttrCornerIndividualCheck" Style="{StaticResource DarkSwitch}"
+                            Content="Individual" VerticalAlignment="Center"
+                            Checked="AttrCornerIndividual_Toggled" Unchecked="AttrCornerIndividual_Toggled"
+                            ToolTip="Set each corner radius separately"/>
+                </StackPanel>
+                <UniformGrid x:Name="AttrCornerIndividualPanel" Columns="2" Visibility="Collapsed">
+                  <controls:ValueSlider x:Name="AttrCornerTopLeft" Tag="TopLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top left" ValueChanged="AttrCornerIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrCornerTopRight" Tag="TopRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top right" ValueChanged="AttrCornerIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrCornerBottomRight" Tag="BottomRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom right" ValueChanged="AttrCornerIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrCornerBottomLeft" Tag="BottomLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom left" ValueChanged="AttrCornerIndividual_ValueChanged"/>
+                </UniformGrid>
+              </StackPanel>
 
               <controls:ValueSlider Decimals="0" x:Name="AttrSoft" Caption="Soft edge" Suffix="%"
                                     Minimum="0" Maximum="100" Margin="0,0,8,0"
@@ -1404,6 +1418,21 @@
             <!-- Slice tool settings -->
             <StackPanel x:Name="AttrSlicePanel" Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,12,0" Visibility="Collapsed">
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="SliceRectModeBtn" Style="{StaticResource SegBtn}"
+                                IsChecked="True" Tag="Rectangle" Click="SliceMode_Click" ToolTip="Rectangular slice">
+                    <Rectangle Width="14" Height="12" Stroke="{StaticResource IconBrush}"
+                               StrokeThickness="1.7" Fill="Transparent" RadiusX="0.5" RadiusY="0.5"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="SliceBezierModeBtn" Style="{StaticResource SegBtn}"
+                                Tag="Bezier" Click="SliceMode_Click" ToolTip="Freeform slice: click points to trace a custom shape">
+                    <Path Data="M2,8 L5,3 L8,6 L11,2 L14,7 L12,13 L7,12 L4,15 Z"
+                          Width="16" Height="16" Stroke="{StaticResource IconBrush}"
+                          StrokeThickness="1.5" StrokeLineJoin="Round" Fill="Transparent" Stretch="Uniform"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
               <ToggleButton x:Name="TopAddSliceBtn" Style="{StaticResource TopToggle}"
                             Click="SliceAdd_Click" ToolTip="Add slices instead of replacing">
                 <StackPanel Orientation="Horizontal">
@@ -1412,7 +1441,7 @@
                   <TextBlock Text="Add slice" Margin="7,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
               </ToggleButton>
-              <TextBlock Text="Each drag replaces the slice by default — turn this on to keep several."
+              <TextBlock Text="New slices replace the previous one by default — turn this on to keep several."
                          Style="{StaticResource AttrCaption}" Margin="10,0,0,0"/>
             </StackPanel>
 
@@ -1911,10 +1940,24 @@
                       Click="AttrShapeFill2_Click" ToolTip="Gradient end color" Margin="0,0,8,0"
                       Visibility="Collapsed"/>
 
-              <controls:ValueSlider x:Name="AttrShapeCorner" Compact="True" Decimals="0"
-                                    Minimum="0" Maximum="250" Margin="0,0,8,0"
-                                    Caption="Corner" ValueChanged="AttrShapeCorner_ValueChanged"
-                                    ToolTip="Corner radius"/>
+              <StackPanel Margin="0,0,8,0">
+                <StackPanel Orientation="Horizontal">
+                  <controls:ValueSlider x:Name="AttrShapeCorner" Compact="True" Decimals="0"
+                                        Minimum="0" Maximum="250" Margin="0,0,7,0"
+                                        Caption="Corner" ValueChanged="AttrShapeCorner_ValueChanged"
+                                        ToolTip="Corner radius"/>
+                  <CheckBox x:Name="AttrShapeIndividualCheck" Style="{StaticResource DarkSwitch}"
+                            Content="Individual" VerticalAlignment="Center"
+                            Checked="AttrShapeIndividual_Toggled" Unchecked="AttrShapeIndividual_Toggled"
+                            ToolTip="Set each corner radius separately"/>
+                </StackPanel>
+                <UniformGrid x:Name="AttrShapeIndividualPanel" Columns="2" Visibility="Collapsed">
+                  <controls:ValueSlider x:Name="AttrShapeTopLeft" Tag="TopLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top left" ValueChanged="AttrShapeIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrShapeTopRight" Tag="TopRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top right" ValueChanged="AttrShapeIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrShapeBottomRight" Tag="BottomRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom right" ValueChanged="AttrShapeIndividual_ValueChanged"/>
+                  <controls:ValueSlider x:Name="AttrShapeBottomLeft" Tag="BottomLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom left" ValueChanged="AttrShapeIndividual_ValueChanged"/>
+                </UniformGrid>
+              </StackPanel>
 
               <Border Style="{StaticResource AttrSep}"/>
 
@@ -1977,6 +2020,10 @@
                   Stroke="{StaticResource IconBrush}" StrokeThickness="1.6" Fill="Transparent"
                   Width="14" Height="14" Stretch="Uniform"/>
           </ToggleButton>
+          <Path Data="M4,16 L16,4 M9,16 L16,9 M14,16 L16,14" Width="14" Height="14"
+                Margin="6,0,2,0" Stretch="None" Stroke="#8EA0B4" StrokeThickness="1.4"
+                IsHitTestVisible="True" ToolTip="Drag to resize window"
+                WindowChrome.ResizeGripDirection="BottomRight"/>
         </StackPanel>
       </StatusBarItem>
     </StatusBar>
@@ -1994,7 +2041,7 @@
           </ToggleButton>
           <!-- fa-crop-simple -->
           <ToggleButton x:Name="SideSliceBtn" Style="{StaticResource SideTool}"
-                        Click="ToolSlice_Click" ToolTip="Slice tool (M) — drag a dashed region">
+                        Click="ToolSlice_Click" ToolTip="Slice tool (M) — rectangular or Bezier selections">
             <Path Data="M4,9 V4 H9 M15,4 H20 V9 M20,15 V20 H15 M9,20 H4 V15"
                   Stroke="{StaticResource IconBrush}" StrokeThickness="2" Fill="Transparent"
                   Width="20" Height="20" Stretch="Uniform"/>
@@ -2166,11 +2213,20 @@
                 </ToggleButton>
               </Grid>
               <Grid x:Name="InspCornerRow" Margin="0,2,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBlock Text="Corner" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
                 <controls:ValueSlider Grid.Column="1" Decimals="0" x:Name="InspRadius" Suffix="px"
                                       Minimum="0" Maximum="250" ValueChanged="InspRadius_ValueChanged"/>
+                <CheckBox Grid.Column="2" x:Name="InspIndividualCornersCheck" Style="{StaticResource DarkSwitch}"
+                          Content="Individual" Margin="8,0,0,0" VerticalAlignment="Center"
+                          Checked="InspIndividualCorners_Toggled" Unchecked="InspIndividualCorners_Toggled"/>
               </Grid>
+              <UniformGrid x:Name="InspIndividualCornersPanel" Columns="2" Visibility="Collapsed" Margin="58,5,0,0">
+                <controls:ValueSlider x:Name="InspCornerTopLeft" Tag="TopLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top left" ValueChanged="InspCornerIndividual_ValueChanged"/>
+                <controls:ValueSlider x:Name="InspCornerTopRight" Tag="TopRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Top right" ValueChanged="InspCornerIndividual_ValueChanged"/>
+                <controls:ValueSlider x:Name="InspCornerBottomRight" Tag="BottomRight" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom right" ValueChanged="InspCornerIndividual_ValueChanged"/>
+                <controls:ValueSlider x:Name="InspCornerBottomLeft" Tag="BottomLeft" Compact="True" Decimals="0" Minimum="0" Maximum="250" Caption="Bottom left" ValueChanged="InspCornerIndividual_ValueChanged"/>
+              </UniformGrid>
             </StackPanel>
           </Border>
 

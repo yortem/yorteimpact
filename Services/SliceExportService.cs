@@ -18,6 +18,32 @@ namespace YorteImpact.Services;
 /// </summary>
 public static class SliceExportService
 {
+    /// <summary>Make pixels outside a Bezier slice transparent.</summary>
+    public static BitmapSource ApplySliceMask(BitmapSource source, SliceRegion slice, Rect outputRect, bool inverse = false)
+    {
+        if (slice.SelectionGeometry == null || outputRect.Width <= 0 || outputRect.Height <= 0)
+            return source;
+        double sx = source.PixelWidth / outputRect.Width;
+        double sy = source.PixelHeight / outputRect.Height;
+        var mask = slice.SelectionGeometry.Clone();
+        mask.Transform = new MatrixTransform(new Matrix(sx, 0, 0, sy, -outputRect.X * sx, -outputRect.Y * sy));
+        Geometry clip = inverse
+            ? Geometry.Combine(new RectangleGeometry(new Rect(0, 0, source.PixelWidth, source.PixelHeight)), mask,
+                GeometryCombineMode.Exclude, null)
+            : mask;
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushClip(clip);
+            dc.DrawImage(source, new Rect(0, 0, source.PixelWidth, source.PixelHeight));
+            dc.Pop();
+        }
+        var result = new RenderTargetBitmap(source.PixelWidth, source.PixelHeight, 96, 96, PixelFormats.Pbgra32);
+        result.Render(visual);
+        if (result.CanFreeze) result.Freeze();
+        return result;
+    }
+
     public static void ExportRegion(FrameworkElement pasteboard, Rect regionPasteboard, string filePath, double dpi = 96, double visualScale = 1)
     {
         var cropped = CropRegion(pasteboard, regionPasteboard, visualScale, dpi);

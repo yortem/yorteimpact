@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Navigation;
+using System.Diagnostics;
 using YorteImpact.Services;
 
 namespace YorteImpact;
@@ -40,4 +42,10 @@ public partial class SettingsDialog : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void RepositoryLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        e.Handled = true;
+    }
 }

@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private enum ActiveTool { Pick, Slice, Line, Rectangle, Text, Erase, Paintbrush }
     private enum DragMode { None, Move, Resize, Rotate, Slice, Draw, DrawLine, Paint, Marquee, TextPress }
     private enum LineToolMode { Line, Polyline, Freehand }
+    private enum SliceToolMode { Rectangle, Bezier }
     private enum RightPanelMode { Inspector, Photo, Grid }
 
     private sealed class AddConverter : IValueConverter
@@ -126,6 +127,9 @@ public partial class MainWindow : Window
     private Rect? _pendingSlice;                        // live drag preview
     private bool _sliceVisible = true;
     private bool _sliceAddMode;                         // false = each drag replaces; true = accumulate (+)
+    private SliceToolMode _sliceToolMode;
+    private readonly List<Point> _sliceBezierDraft = new();
+    private Point? _sliceBezierCursor;
     private DesignElement? _copiedPrototype;
     private uint _copyClipboardSeq;
     private int _untitledCounter = 1;
@@ -1526,6 +1530,12 @@ public partial class MainWindow : Window
 
         if (_tool == ActiveTool.Slice && e.ChangedButton == MouseButton.Left)
         {
+            if (_sliceToolMode == SliceToolMode.Bezier)
+            {
+                AddBezierSlicePoint(pos, e.ClickCount);
+                e.Handled = true;
+                return;
+            }
             _drag = DragMode.Slice;
             _dragStartCanvas = pos;
             _sliceVisible = true; // a fresh drag always shows its marker
@@ -1761,6 +1771,12 @@ public partial class MainWindow : Window
     {
         var pos = e.GetPosition(Pasteboard);
 
+        if (_tool == ActiveTool.Slice && _sliceToolMode == SliceToolMode.Bezier && _sliceBezierDraft.Count > 0)
+        {
+            _sliceBezierCursor = pos;
+            RefreshSliceLayer();
+        }
+
         if (_ctrlGesturePending && _ctrlGestureElement is { } pending)
         {
             double threshold = 3 / Math.Max(0.25, _zoom);
@@ -1870,7 +1886,8 @@ public partial class MainWindow : Window
     {
         if (_drag != DragMode.Paint)
             BrushCursor.Visibility = Visibility.Collapsed;
-        if (_drag == DragMode.Draw) HideDrawSizeTip();
+        if (_drag is DragMode.Draw or DragMode.DrawLine || _lineDraft.Count > 0)
+            HideDrawSizeTip();
     }
 
     private void Pasteboard_MouseUp(object sender, MouseButtonEventArgs e)
@@ -1930,7 +1947,7 @@ public partial class MainWindow : Window
             {
                 // Plain click: activate the topmost region under the cursor, if any.
                 var pos = e.GetPosition(Pasteboard);
-                var hit = _slices.LastOrDefault(r => r.Rect.Contains(pos));
+                var hit = _slices.LastOrDefault(r => r.SelectionGeometry?.FillContains(pos) ?? r.Rect.Contains(pos));
                 if (hit != null)
                 {
                     _activeSlice = hit;
@@ -2368,15 +2385,20 @@ public partial class MainWindow : Window
         SliceLayer.Children.Clear();
         if (!_sliceVisible) return;
         foreach (var region in _slices)
-            AddSliceVisual(region.Rect, ReferenceEquals(region, _activeSlice));
+            AddSliceVisual(region, ReferenceEquals(region, _activeSlice));
         if (_drag == DragMode.Slice && _pendingSlice is Rect pr && pr.Width >= 1 && pr.Height >= 1)
-            AddSliceVisual(pr, true);
+            AddSliceVisual(new SliceRegion { Rect = pr }, true);
+        if (_sliceBezierDraft.Count > 0)
+            AddSliceDraftVisual();
     }
 
-    private void AddSliceVisual(Rect rect, bool active)
+    private void AddSliceVisual(SliceRegion region, bool active)
     {
-        var back = new System.Windows.Shapes.Rectangle
+        var rect = region.Rect;
+        Geometry geometry = region.SelectionGeometry ?? (Geometry)new RectangleGeometry(rect);
+        var back = new System.Windows.Shapes.Path
         {
+            Data = geometry,
             Stroke = Brushes.White,
             StrokeThickness = 1,
             StrokeDashArray = new DoubleCollection { 7, 5 },
@@ -2384,8 +2406,9 @@ public partial class MainWindow : Window
             Fill = Brushes.Transparent,
             IsHitTestVisible = false,
         };
-        var front = new System.Windows.Shapes.Rectangle
+        var front = new System.Windows.Shapes.Path
         {
+            Data = geometry,
             Stroke = new SolidColorBrush(active
                 ? Color.FromRgb(0x00, 0xBF, 0xFF)   // active: cyan
                 : Color.FromRgb(0x8A, 0x94, 0xA6)), // inactive: dim gray
@@ -2394,14 +2417,88 @@ public partial class MainWindow : Window
             Fill = Brushes.Transparent,
             IsHitTestVisible = false,
         };
-        foreach (var r in new[] { back, front })
+        foreach (var path in new[] { back, front })
         {
-            Canvas.SetLeft(r, rect.X);
-            Canvas.SetTop(r, rect.Y);
-            r.Width = Math.Max(1, rect.Width);
-            r.Height = Math.Max(1, rect.Height);
-            SliceLayer.Children.Add(r);
+            SliceLayer.Children.Add(path);
         }
+    }
+
+    private void AddBezierSlicePoint(Point point, int clickCount)
+    {
+        if (_sliceBezierDraft.Count >= 3 && DistanceSquared(point, _sliceBezierDraft[0]) < 100)
+        {
+            FinishBezierSlice();
+            return;
+        }
+        if (_sliceBezierDraft.Count > 0 && DistanceSquared(point, _sliceBezierDraft[^1]) < 4)
+        {
+            if (clickCount >= 2) FinishBezierSlice();
+            return;
+        }
+        _sliceBezierDraft.Add(point);
+        _sliceBezierCursor = point;
+        RefreshSliceLayer();
+        if (clickCount >= 2) FinishBezierSlice();
+        else StatusText.Text = "Bezier slice: click to add exact corner points; click the first point, double-click or press Enter to close; Esc cancels.";
+    }
+
+    private void FinishBezierSlice()
+    {
+        if (_sliceBezierDraft.Count < 3)
+        {
+            StatusText.Text = "A Bezier slice needs at least 3 points.";
+            return;
+        }
+        var points = _sliceBezierDraft.ToArray();
+        var geometry = CreateAnchoredPolygonGeometry(points);
+        var bounds = geometry.Bounds;
+        if (bounds.Width < 5 || bounds.Height < 5) return;
+        if (!_sliceAddMode) _slices.Clear();
+        var region = new SliceRegion { Rect = bounds, Name = $"slice{_slices.Count + 1}", SelectionGeometry = geometry };
+        _slices.Add(region);
+        _activeSlice = region;
+        _sliceBezierDraft.Clear();
+        _sliceBezierCursor = null;
+        StatusText.Text = $"Bezier slice {bounds.Width:F0}×{bounds.Height:F0} — Ctrl+C copies the selected area.";
+        RefreshSliceLayer();
+    }
+
+    private static PathGeometry CreateAnchoredPolygonGeometry(IReadOnlyList<Point> points)
+    {
+        var geometry = new PathGeometry();
+        var figure = new PathFigure { StartPoint = points[0], IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new PolyLineSegment(points.Skip(1).ToArray(), true));
+        geometry.Figures.Add(figure);
+        geometry.Freeze();
+        return geometry;
+    }
+
+    private void AddSliceDraftVisual()
+    {
+        var draft = _sliceBezierDraft.ToList();
+        if (_sliceBezierCursor is Point cursor && DistanceSquared(cursor, draft[^1]) > 1)
+            draft.Add(cursor);
+        if (draft.Count < 2) return;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(draft[0], false, false);
+            ctx.PolyLineTo(draft.Skip(1).ToArray(), true, false);
+        }
+        geometry.Freeze();
+        SliceLayer.Children.Add(new System.Windows.Shapes.Path
+        {
+            Data = geometry, Stroke = new SolidColorBrush(Color.FromRgb(0, 0xBF, 0xFF)),
+            StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 6, 3 },
+            IsHitTestVisible = false,
+        });
+        foreach (var anchor in _sliceBezierDraft)
+            SliceLayer.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Width = 6, Height = 6, Fill = Brushes.White, Stroke = Brushes.DeepSkyBlue,
+                StrokeThickness = 1, IsHitTestVisible = false,
+                RenderTransform = new TranslateTransform(anchor.X - 3, anchor.Y - 3),
+            });
     }
 
     private void ClearSlice()
@@ -2409,6 +2506,8 @@ public partial class MainWindow : Window
         _slices.Clear();
         _activeSlice = null;
         _pendingSlice = null;
+        _sliceBezierDraft.Clear();
+        _sliceBezierCursor = null;
         _sliceVisible = true;
         RefreshSliceLayer();
     }
@@ -2501,7 +2600,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        DrawSizeTipText.Text = $"{rect.Width:F0} \u00D7 {rect.Height:F0} px";
+        ShowSizeTipText($"{rect.Width:F0} \u00D7 {rect.Height:F0} px");
+    }
+
+    private void ShowLineSizeTip(Point start, Point end)
+    {
+        var delta = end - start;
+        if (delta.Length < 0.5)
+        {
+            HideDrawSizeTip();
+            return;
+        }
+
+        ShowSizeTipText($"{Math.Abs(delta.X):F0} \u00D7 {Math.Abs(delta.Y):F0} px");
+    }
+
+    private void ShowSizeTipText(string text)
+    {
+        DrawSizeTipText.Text = text;
         DrawSizeTip.Visibility = Visibility.Visible;
         DrawSizeTip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = DrawSizeTip.DesiredSize;
@@ -2539,6 +2655,9 @@ public partial class MainWindow : Window
             Width = Math.Max(1, rect.Width), Height = Math.Max(1, rect.Height),
             Kind = ParseEnum(d.ShapeKind, ShapeKind.Rectangle),
             CornerRadius = d.CornerRadius,
+            UseIndividualCornerRadii = d.IndividualCorners,
+            IndividualCornerRadii = new CornerRadius(d.CornerTopLeft, d.CornerTopRight,
+                d.CornerBottomRight, d.CornerBottomLeft),
             IsGradient = d.IsGradient,
             GradientType = ParseEnum(d.GradientType, GradientType.Linear),
             GradientAngle = d.GradientAngle,
@@ -2581,6 +2700,11 @@ public partial class MainWindow : Window
         d.StrokeThickness = sh.StrokeThickness;
         d.ShapeKind = sh.Kind.ToString();
         d.CornerRadius = sh.CornerRadius;
+        d.IndividualCorners = sh.UseIndividualCornerRadii;
+        d.CornerTopLeft = sh.IndividualCornerRadii.TopLeft;
+        d.CornerTopRight = sh.IndividualCornerRadii.TopRight;
+        d.CornerBottomRight = sh.IndividualCornerRadii.BottomRight;
+        d.CornerBottomLeft = sh.IndividualCornerRadii.BottomLeft;
         d.Opacity = sh.Opacity;
         d.SoftEdge = sh.SoftEdge;
         d.ShadowStyle = sh.ShadowStyle.ToString();
@@ -2634,6 +2758,8 @@ public partial class MainWindow : Window
     private void BeginLineDraw(Point pos)
     {
         ResetLineDraft();
+        if (_lineMode == LineToolMode.Line && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            pos = SnapLinePoint(pos);
         _lineDraft.Add(pos);
         _drawStart = pos;
         _drag = DragMode.DrawLine;
@@ -2641,11 +2767,24 @@ public partial class MainWindow : Window
         UpdateLinePreview(pos);
         StatusText.Text = _lineMode == LineToolMode.Freehand
             ? "Freehand line: draw and release. Esc cancels."
-            : "Drag to draw a straight line. Esc cancels.";
+            : "Drag to draw a straight line. Shift snaps the angle to 15°; Ctrl snaps to guides, canvas and objects. Esc cancels.";
     }
 
     private void UpdateLinePreview(Point cursor)
     {
+        if (_lineMode == LineToolMode.Polyline && _lineDraft.Count > 0)
+            cursor = AdjustLineEndpoint(_lineDraft[^1], cursor);
+        else if (_lineMode == LineToolMode.Line && _drag == DragMode.DrawLine)
+            cursor = AdjustLineEndpoint(_drawStart, cursor);
+
+        if (_lineMode is LineToolMode.Line or LineToolMode.Polyline)
+        {
+            var anchor = _lineMode == LineToolMode.Polyline && _lineDraft.Count > 0
+                ? _lineDraft[^1]
+                : _drawStart;
+            ShowLineSizeTip(anchor, cursor);
+        }
+
         var points = (_lineMode is LineToolMode.Freehand or LineToolMode.Polyline)
             ? _lineDraft.ToList()
             : new List<Point> { _drawStart, cursor };
@@ -2683,6 +2822,56 @@ public partial class MainWindow : Window
         Canvas.SetLeft(LinePreviewGroup, line.X);
         Canvas.SetTop(LinePreviewGroup, line.Y);
         LinePreviewGroup.Visibility = Visibility.Visible;
+    }
+
+    private Point AdjustLineEndpoint(Point start, Point target)
+    {
+        var delta = target - start;
+        if (delta.Length > 0.001 &&
+            (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+        {
+            double angleStep = Math.PI / 12; // 15-degree increments
+            double angle = Math.Round(Math.Atan2(delta.Y, delta.X) / angleStep) * angleStep;
+            target = start + new Vector(Math.Cos(angle), Math.Sin(angle)) * delta.Length;
+        }
+
+        return (Keyboard.Modifiers & ModifierKeys.Control) != 0
+            ? SnapLinePoint(target)
+            : HideSnapGuidesAndReturn(target);
+    }
+
+    private Point SnapLinePoint(Point point)
+    {
+        double tolerance = 8 / Math.Max(0.25, _zoom);
+        var xGuides = new List<double>();
+        var yGuides = new List<double>();
+        var art = _doc.ArtboardRect;
+        xGuides.AddRange(new[] { art.Left, art.Left + art.Width / 2, art.Right });
+        yGuides.AddRange(new[] { art.Top, art.Top + art.Height / 2, art.Bottom });
+
+        if (GuideOverlay.Visibility == Visibility.Visible)
+        {
+            xGuides.AddRange(GuideOverlay.GetVerticalLines());
+            yGuides.AddRange(GuideOverlay.GetHorizontalLines());
+        }
+
+        foreach (var element in _doc.Elements.Where(element => !element.IsBackgroundLayer))
+        {
+            xGuides.AddRange(new[] { element.X, element.X + element.Width / 2, element.X + element.Width });
+            yGuides.AddRange(new[] { element.Y, element.Y + element.Height / 2, element.Y + element.Height });
+        }
+
+        double? snapX = NearestGuide(xGuides, point.X, tolerance);
+        double? snapY = NearestGuide(yGuides, point.Y, tolerance);
+        if (snapX is double x) ShowSnapX(x); else SnapGuideV.Visibility = Visibility.Collapsed;
+        if (snapY is double y) ShowSnapY(y); else SnapGuideH.Visibility = Visibility.Collapsed;
+        return new Point(snapX ?? point.X, snapY ?? point.Y);
+    }
+
+    private Point HideSnapGuidesAndReturn(Point point)
+    {
+        HideSnapGuides();
+        return point;
     }
 
     private LineElement CreateLineFromPoints(IReadOnlyList<Point> points, bool freehand, bool polyline = false)
@@ -2730,12 +2919,15 @@ public partial class MainWindow : Window
     {
         if (_lineDraft.Count == 0)
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                pos = SnapLinePoint(pos);
             _lineDraft.Add(pos);
             UpdateLinePreview(pos);
-            StatusText.Text = "Polyline: click to add points; double-click or Enter finishes, Esc cancels.";
+            StatusText.Text = "Polyline: click to add points; Shift snaps each segment to 15°, Ctrl snaps to guides, canvas and objects. Double-click or Enter finishes; Esc cancels.";
             return;
         }
 
+        pos = AdjustLineEndpoint(_lineDraft[^1], pos);
         double minDistance = Math.Max(1, 2 / Math.Max(0.25, _zoom));
         if ((pos - _lineDraft[^1]).Length >= minDistance)
             _lineDraft.Add(pos);
@@ -2754,6 +2946,9 @@ public partial class MainWindow : Window
 
     private void FinishLineDraw(Point cursor)
     {
+        HideDrawSizeTip();
+        if (_lineMode == LineToolMode.Line)
+            cursor = AdjustLineEndpoint(_drawStart, cursor);
         var points = _lineMode == LineToolMode.Freehand
             ? _lineDraft.ToList()
             : new List<Point> { _drawStart, cursor };
@@ -2808,6 +3003,7 @@ public partial class MainWindow : Window
     private void ResetLineDraft()
     {
         _lineDraft.Clear();
+        HideDrawSizeTip();
         if (LinePreview == null) return;
         LinePreviewGroup.Visibility = Visibility.Collapsed;
         LinePreview.Data = null;
@@ -3114,6 +3310,10 @@ public partial class MainWindow : Window
         (Viewport.HorizontalOffset + Viewport.ViewportWidth / 2 - _pasteOffsetX) / _zoom,
         (Viewport.VerticalOffset + Viewport.ViewportHeight / 2 - _pasteOffsetY) / _zoom);
 
+    private Point ViewportToModel(Point view) => new(
+        (Viewport.HorizontalOffset + view.X - _pasteOffsetX) / _zoom,
+        (Viewport.VerticalOffset + view.Y - _pasteOffsetY) / _zoom);
+
     /// <summary>
     /// Size the scrollable host to the canvas (never smaller than the viewport)
     /// and park the pasteboard so the artboard sits centered. When the scaled
@@ -3152,14 +3352,27 @@ public partial class MainWindow : Window
         LayoutViewport();
         Pasteboard.UpdateLayout();
         ScrollHost.UpdateLayout();
+        Viewport.UpdateLayout();
         Viewport.ScrollToHorizontalOffset(_pasteOffsetX + anchorModel.X * _zoom - anchorView.X);
         Viewport.ScrollToVerticalOffset(_pasteOffsetY + anchorModel.Y * _zoom - anchorView.Y);
+        Viewport.UpdateLayout();
         UpdateZoomUI();
     }
 
-    private void SetZoom(double z) =>
+    private void SetZoom(double z)
+    {
+        var view = Mouse.GetPosition(Viewport);
+        if (view.X >= 0 && view.Y >= 0 &&
+            view.X <= Viewport.ViewportWidth && view.Y <= Viewport.ViewportHeight)
+        {
+            var center = new Point(Viewport.ViewportWidth / 2, Viewport.ViewportHeight / 2);
+            ApplyZoom(z, ViewportToModel(view), center);
+            return;
+        }
+
         ApplyZoom(z, ViewportCenterModel(),
             new Point(Viewport.ViewportWidth / 2, Viewport.ViewportHeight / 2));
+    }
 
     // Fixed zoom stops so keyboard/button zooming steps to the next entry and
     // therefore always passes exactly through 100% (0.05 .. 8.0).
@@ -3194,9 +3407,10 @@ public partial class MainWindow : Window
     {
         if (!Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl))
             return; // plain wheel scrolls (only possible while the canvas overflows)
-        var model = Mouse.GetPosition(Pasteboard); // model coords (pre-zoom local)
         var view = e.GetPosition(Viewport);
-        ApplyZoom(_zoom * (e.Delta > 0 ? 1.15 : 1 / 1.15), model, view);
+        var model = ViewportToModel(view);
+        var center = new Point(Viewport.ViewportWidth / 2, Viewport.ViewportHeight / 2);
+        ApplyZoom(_zoom * (e.Delta > 0 ? 1.15 : 1 / 1.15), model, center);
         e.Handled = true;
     }
 
@@ -3232,7 +3446,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Fit 100% of the canvas (artboard) into the viewport and center it.
     /// The resulting zoom can be anything (25%, 63%, …); zooming in/out
-    /// afterwards pivots around the viewport center.
+    /// afterwards pivots around the pointer when it is over the viewport.
     /// </summary>
     private void ZoomToFit()
     {
@@ -3290,6 +3504,25 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (_sliceBezierDraft.Count > 0 && _tool == ActiveTool.Slice)
+        {
+            if (e.Key == Key.Enter) FinishBezierSlice();
+            else if (e.Key == Key.Escape)
+            {
+                _sliceBezierDraft.Clear();
+                _sliceBezierCursor = null;
+                RefreshSliceLayer();
+                StatusText.Text = "Bezier slice cancelled.";
+            }
+            else if (e.Key == Key.Back)
+            {
+                _sliceBezierDraft.RemoveAt(_sliceBezierDraft.Count - 1);
+                if (_sliceBezierDraft.Count == 0) _sliceBezierCursor = null;
+                RefreshSliceLayer();
+            }
+            if (e.Key is Key.Enter or Key.Escape or Key.Back) { e.Handled = true; return; }
         }
 
         if (_drag == DragMode.DrawLine && e.Key == Key.Escape)
@@ -3451,8 +3684,8 @@ public partial class MainWindow : Window
         // With a selection, that means the slice area OF the selected object.
         if (hasSlice)
         {
-            if (_doc.Selected is { } sel) CopySliceOfElement(sel, slice!.Rect);
-            else CopySliceOfCanvas(slice!.Rect);
+            if (_doc.Selected is { } sel) CopySliceOfElement(sel, slice!);
+            else CopySliceOfCanvas(slice!);
             return;
         }
 
@@ -3471,15 +3704,20 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Render just the slice intersection of an element at 1:1 and expose it to other apps.</summary>
-    private static void PutSliceOnClipboard(DesignElement el, Rect inter)
+    private static void PutSliceOnClipboard(DesignElement el, Rect inter, SliceRegion slice)
     {
-        try { SetSystemClipboardImage(SliceExportService.CropElementRegion(el, inter, 1.0)); }
+        try
+        {
+            var bmp = SliceExportService.CropElementRegion(el, inter, 1.0);
+            SetSystemClipboardImage(SliceExportService.ApplySliceMask(bmp, slice, inter));
+        }
         catch { /* nothing renderable to share */ }
     }
 
     /// <summary>Copy the slice area of the selected element (the slice acts as a marquee).</summary>
-    private void CopySliceOfElement(DesignElement el, Rect sliceRect)
+    private void CopySliceOfElement(DesignElement el, SliceRegion slice)
     {
+        var sliceRect = slice.Rect;
         var inter = Rect.Intersect(el.Bounds, sliceRect);
         if (inter.IsEmpty || inter.Width < 1 || inter.Height < 1)
         {
@@ -3501,6 +3739,7 @@ public partial class MainWindow : Window
         {
             Pasteboard.UpdateLayout();
             var bmp = SliceExportService.CropElementRegion(el, inter, _zoom);
+            bmp = SliceExportService.ApplySliceMask(bmp, slice, inter);
             var (color, uniform) = SliceCutService.AnalyzeRegion(bmp);
             if (uniform)
             {
@@ -3522,7 +3761,7 @@ public partial class MainWindow : Window
                 _copiedPrototype = copy;
                 StatusText.Text = $"Copied {inter.Width:F0}×{inter.Height:F0} from the selected object — Ctrl+V here, or in other apps.";
             }
-            PutSliceOnClipboard(el, inter);
+            PutSliceOnClipboard(el, inter, slice);
             _copyClipboardSeq = SafeClipboardSeq();
         }
         catch (Exception ex)
@@ -3532,8 +3771,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Copy the slice area off the canvas (no selection): only the on-canvas part is real content.</summary>
-    private void CopySliceOfCanvas(Rect sliceRect)
+    private void CopySliceOfCanvas(SliceRegion slice)
     {
+        var sliceRect = slice.Rect;
         // The pasteboard and the canvas drop shadow around it must be ignored,
         // otherwise a slice crossing the edge copies black/gray filler.
         var region = Rect.Intersect(sliceRect, _doc.ArtboardRect);
@@ -3547,6 +3787,7 @@ public partial class MainWindow : Window
         {
             Pasteboard.UpdateLayout();
             var bmp = SliceExportService.RenderRegion(ElementHost, region, ExportBackground, _zoom);
+            bmp = SliceExportService.ApplySliceMask(bmp, slice, region);
             var (color, uniform) = SliceCutService.AnalyzeRegion(bmp);
 
             if (uniform)
@@ -3574,7 +3815,11 @@ public partial class MainWindow : Window
                 _copiedPrototype = el;
                 StatusText.Text = $"Copied {region.Width:F0}×{region.Height:F0} slice image — Ctrl+V here, or paste it into other apps.";
             }
-            try { SetSystemClipboardImage(SliceExportService.RenderRegion(ElementHost, region, ExportBackground, 1.0)); }
+            try
+            {
+                var clipboardBmp = SliceExportService.RenderRegion(ElementHost, region, ExportBackground, 1.0);
+                SetSystemClipboardImage(SliceExportService.ApplySliceMask(clipboardBmp, slice, region));
+            }
             catch { }
             _copyClipboardSeq = SafeClipboardSeq(); // record the seq we just wrote so in-app paste wins
         }
@@ -3705,8 +3950,9 @@ public partial class MainWindow : Window
             var inter = Rect.Intersect(outer, _activeSlice.Rect);
             if (!inter.IsEmpty && inter.Width >= 1 && inter.Height >= 1)
             {
-                bool fullyCovered = inter.X <= outer.X + 0.5 && inter.Y <= outer.Y + 0.5
-                    && inter.Right >= outer.Right - 0.5 && inter.Bottom >= outer.Bottom - 0.5;
+                bool fullyCovered = _activeSlice.SelectionGeometry?.FillContains(new RectangleGeometry(outer)) == true ||
+                    (_activeSlice.SelectionGeometry == null && inter.X <= outer.X + 0.5 && inter.Y <= outer.Y + 0.5
+                    && inter.Right >= outer.Right - 0.5 && inter.Bottom >= outer.Bottom - 0.5);
                 if (fullyCovered)
                 {
                     _doc.RemoveSelected();
@@ -3716,7 +3962,7 @@ public partial class MainWindow : Window
 
                 if (s is ImageElement im)
                 {
-                    var r = SliceCutService.EraseImageRegion(im, _activeSlice.Rect);
+                    var r = SliceCutService.EraseImageRegion(im, _activeSlice);
                     if (r == PunchResult.Partial)
                     {
                         StatusText.Text = "Cut the slice area out of the image — Delete again removes the whole image.";
@@ -3728,7 +3974,7 @@ public partial class MainWindow : Window
                 {
                     // One flat object out: bake fill/border to pixels, cut the hole.
                     int z = sh.ZIndex;
-                    var flat = SliceCutService.CutShapeFlat(sh, _activeSlice.Rect);
+                    var flat = SliceCutService.CutShapeFlat(sh, _activeSlice);
                     _doc.RemoveElement(sh);
                     flat.ZIndex = z;
                     _doc.Elements.Add(flat);
@@ -4285,9 +4531,48 @@ public partial class MainWindow : Window
     private void AttrCorner_ValueChanged(object sender, EventArgs e)
     {
         if (_suppressInspector || _doc.Selected is not { } el) return;
+        if (el.UseIndividualCornerRadii) return;
         ArmInspectorUndo();
         if (el is ShapeElement sh) sh.CornerRadius = AttrCorner.Value;
         else if (el is ImageElement im) im.CornerRadius = AttrCorner.Value;
+    }
+
+    private static double GetUniformCornerRadius(DesignElement element) => element switch
+    {
+        ShapeElement shape => shape.CornerRadius,
+        ImageElement image => image.CornerRadius,
+        _ => 0,
+    };
+
+    private static CornerRadius SetCornerValue(CornerRadius current, string corner, double value) => corner switch
+    {
+        "TopLeft" => new CornerRadius(value, current.TopRight, current.BottomRight, current.BottomLeft),
+        "TopRight" => new CornerRadius(current.TopLeft, value, current.BottomRight, current.BottomLeft),
+        "BottomRight" => new CornerRadius(current.TopLeft, current.TopRight, value, current.BottomLeft),
+        "BottomLeft" => new CornerRadius(current.TopLeft, current.TopRight, current.BottomRight, value),
+        _ => current,
+    };
+
+    private void AttrCornerIndividual_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressInspector || _doc.Selected is not { } element) return;
+        ArmInspectorUndo();
+        bool enabled = AttrCornerIndividualCheck.IsChecked == true;
+        if (enabled && !element.UseIndividualCornerRadii)
+            element.IndividualCornerRadii = new CornerRadius(GetUniformCornerRadius(element));
+        element.UseIndividualCornerRadii = enabled;
+        RefreshInspector();
+        RefreshShapeToolbar();
+    }
+
+    private void AttrCornerIndividual_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || sender is not ValueSlider slider || slider.Tag is not string corner
+            || _doc.Selected is not { } element || !element.UseIndividualCornerRadii) return;
+        ArmInspectorUndo();
+        element.IndividualCornerRadii = SetCornerValue(element.IndividualCornerRadii, corner, slider.Value);
+        RefreshInspector();
+        RefreshShapeToolbar();
     }
 
     private void AttrSoft_ValueChanged(object sender, EventArgs e)
@@ -4560,8 +4845,16 @@ public partial class MainWindow : Window
             AttrShapeTriangleBtn.IsChecked = src.Kind == ShapeKind.Triangle;
             AttrShapePolygonBtn.IsChecked = src.Kind == ShapeKind.Polygon;
             bool rectangle = src.Kind == ShapeKind.Rectangle;
-            AttrShapeCorner.IsEnabled = rectangle;
+            AttrShapeCorner.IsEnabled = rectangle && !src.UseIndividualCornerRadii;
             AttrShapeCorner.Opacity = rectangle ? 1.0 : 0.35;
+            AttrShapeIndividualCheck.IsChecked = src.UseIndividualCornerRadii;
+            AttrShapeIndividualCheck.IsEnabled = rectangle;
+            AttrShapeIndividualPanel.Visibility = rectangle && src.UseIndividualCornerRadii
+                ? Visibility.Visible : Visibility.Collapsed;
+            AttrShapeTopLeft.SetValue(src.IndividualCornerRadii.TopLeft);
+            AttrShapeTopRight.SetValue(src.IndividualCornerRadii.TopRight);
+            AttrShapeBottomRight.SetValue(src.IndividualCornerRadii.BottomRight);
+            AttrShapeBottomLeft.SetValue(src.IndividualCornerRadii.BottomLeft);
             AttrShapeFill1Btn.Background = new SolidColorBrush(src.FillColor1);
             AttrShapeFill2Btn.Background = new SolidColorBrush(src.FillColor2);
             AttrShapeFill2Btn.Visibility = src.IsGradient ? Visibility.Visible : Visibility.Collapsed;
@@ -4640,6 +4933,7 @@ public partial class MainWindow : Window
     {
         if (_suppressShapeToolbar) return;
         var target = SelectedShape;
+        if (target?.UseIndividualCornerRadii == true || (target == null && _settings.Shape.IndividualCorners)) return;
         if (target != null)
         {
             ArmInspectorUndo();
@@ -4650,6 +4944,59 @@ public partial class MainWindow : Window
         {
             _settings.Shape.CornerRadius = AttrShapeCorner.Value;
         }
+    }
+
+    private void AttrShapeIndividual_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressShapeToolbar) return;
+        bool enabled = AttrShapeIndividualCheck.IsChecked == true;
+        var target = SelectedShape;
+        if (target != null)
+        {
+            ArmInspectorUndo();
+            if (enabled && !target.UseIndividualCornerRadii)
+                target.IndividualCornerRadii = new CornerRadius(target.CornerRadius);
+            target.UseIndividualCornerRadii = enabled;
+            RefreshInspector();
+        }
+        else
+        {
+            if (enabled && !_settings.Shape.IndividualCorners)
+            {
+                double radius = _settings.Shape.CornerRadius;
+                _settings.Shape.CornerTopLeft = radius;
+                _settings.Shape.CornerTopRight = radius;
+                _settings.Shape.CornerBottomRight = radius;
+                _settings.Shape.CornerBottomLeft = radius;
+            }
+            _settings.Shape.IndividualCorners = enabled;
+        }
+        RefreshShapeToolbar();
+    }
+
+    private void AttrShapeIndividual_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressShapeToolbar || sender is not ValueSlider slider || slider.Tag is not string corner) return;
+        var target = SelectedShape;
+        if (target != null)
+        {
+            if (!target.UseIndividualCornerRadii) return;
+            ArmInspectorUndo();
+            target.IndividualCornerRadii = SetCornerValue(target.IndividualCornerRadii, corner, slider.Value);
+            RefreshInspector();
+        }
+        else
+        {
+            if (!_settings.Shape.IndividualCorners) return;
+            var radii = new CornerRadius(_settings.Shape.CornerTopLeft, _settings.Shape.CornerTopRight,
+                _settings.Shape.CornerBottomRight, _settings.Shape.CornerBottomLeft);
+            radii = SetCornerValue(radii, corner, slider.Value);
+            _settings.Shape.CornerTopLeft = radii.TopLeft;
+            _settings.Shape.CornerTopRight = radii.TopRight;
+            _settings.Shape.CornerBottomRight = radii.BottomRight;
+            _settings.Shape.CornerBottomLeft = radii.BottomLeft;
+        }
+        RefreshShapeToolbar();
     }
 
     private void AttrShapeBorder_Toggled(object sender, RoutedEventArgs e)
@@ -5226,11 +5573,30 @@ public partial class MainWindow : Window
             : "Slice: replace mode — each drag replaces the previous region.";
     }
 
+    private void SliceMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton button) return;
+        _sliceToolMode = button.Tag?.ToString() == "Bezier" ? SliceToolMode.Bezier : SliceToolMode.Rectangle;
+        SliceRectModeBtn.IsChecked = _sliceToolMode == SliceToolMode.Rectangle;
+        SliceBezierModeBtn.IsChecked = _sliceToolMode == SliceToolMode.Bezier;
+        _sliceBezierDraft.Clear();
+        _sliceBezierCursor = null;
+        RefreshSliceLayer();
+        StatusText.Text = _sliceToolMode == SliceToolMode.Bezier
+                    ? "Bezier slice: click exact corner points; click the first point, double-click or press Enter to close. Esc cancels."
+            : "Rectangular slice: drag to create a region.";
+    }
+
+    private static double DistanceSquared(Point a, Point b)
+    {
+        double dx = a.X - b.X, dy = a.Y - b.Y;
+        return dx * dx + dy * dy;
+    }
+
     private void SetTool(ActiveTool tool)
     {
         if (_editingText != null && tool != ActiveTool.Text)
             CommitTextEdit(); // leave the in-place editor before switching tools
-        bool leftSlice = _tool == ActiveTool.Slice && tool != ActiveTool.Slice;
         if (tool != ActiveTool.Rectangle && _polygonDraft.Count > 0) ResetPolygonDraft();
         if (tool != ActiveTool.Line && _lineDraft.Count > 0)
         {
@@ -5248,18 +5614,20 @@ public partial class MainWindow : Window
         if (tool != ActiveTool.Paintbrush) BrushCursor.Visibility = Visibility.Collapsed;
         HideDrawSizeTip();
         _tool = tool;
-        if (leftSlice) ClearSlice(); // slice regions belong to the Slice tool: leaving it resets them
+        RefreshSliceLayer(); // slice selections remain visible while other tools are active
         UpdateToolUI();
         StatusText.Text = _tabs.Count == 0
             ? "No project open — create one, or paste/drop an image."
             : tool switch
             {
-                ActiveTool.Pick => "Pick tool: click to select; Ctrl/Shift+click adds to the selection; drag to move (Shift = snap); handles resize (Shift = proportions, Ctrl = snap to grid). Ctrl+C copies selection or slice.",
-                ActiveTool.Slice => _sliceAddMode
-                    ? "Slice tool (add): each drag adds a region - Export / Ctrl+C / Delete-cut / Ctrl+R crop the active one."
-                    : "Slice tool: each drag replaces the region - Export / Ctrl+C / Delete-cut / Ctrl+R crop it. +Add slice to accumulate.",
+                ActiveTool.Pick => "Pick tool: click to select; Ctrl/Shift+click adds to the selection; drag to move. Slice selections stay visible here; Space hides or shows them.",
+                ActiveTool.Slice => _sliceToolMode == SliceToolMode.Bezier
+                    ? "Bezier slice: click exact corner points; close at the first point, double-click or press Enter. Esc cancels."
+                    : _sliceAddMode
+                        ? "Slice tool (add): drag to add a rectangular region."
+                        : "Slice tool: drag to create a rectangular region; turn on +Add slice to accumulate.",
                 ActiveTool.Rectangle => "Path tool: choose a shape and drag; Polygon uses click-to-connect. V returns to Pick.",
-                ActiveTool.Line => "Line tool: draw a straight line, click points for a polyline, or draw freehand.",
+                ActiveTool.Line => "Line tool: Shift snaps straight line angles to 15°; Ctrl snaps endpoints to guides, canvas and objects.",
                 ActiveTool.Text => "Text tool: click the canvas and type. Enter = new line, Esc or click outside = done. RTL is automatic (button in the inspector).",
                 ActiveTool.Erase => "Background remover: click an image to erase that color's connected area, or press Auto to clear the border background.",
                 ActiveTool.Paintbrush => "Paintbrush: paint on the clicked image or on the canvas. Alt+click samples a color; [ / ] changes the size.",
@@ -6286,6 +6654,14 @@ public partial class MainWindow : Window
                 ImageElement im => im.CornerRadius,
                 _ => 0,
             });
+            bool individualCorners = s?.UseIndividualCornerRadii == true;
+            var radii = s?.IndividualCornerRadii ?? new CornerRadius();
+            InspIndividualCornersCheck.IsChecked = individualCorners;
+            InspIndividualCornersPanel.Visibility = individualCorners ? Visibility.Visible : Visibility.Collapsed;
+            InspCornerTopLeft.SetValue(radii.TopLeft);
+            InspCornerTopRight.SetValue(radii.TopRight);
+            InspCornerBottomRight.SetValue(radii.BottomRight);
+            InspCornerBottomLeft.SetValue(radii.BottomLeft);
             InspRatioLockBtn.IsChecked = _lockAspectRatio;
             AttrOpacity.SetValue(s?.Opacity ?? 0);
             AttrCorner.SetValue(s switch
@@ -6294,12 +6670,20 @@ public partial class MainWindow : Window
                 ImageElement im => im.CornerRadius,
                 _ => 0,
             });
+            AttrCornerIndividualCheck.IsChecked = individualCorners;
+            AttrCornerIndividualPanel.Visibility = individualCorners ? Visibility.Visible : Visibility.Collapsed;
+            AttrCornerTopLeft.SetValue(radii.TopLeft);
+            AttrCornerTopRight.SetValue(radii.TopRight);
+            AttrCornerBottomRight.SetValue(radii.BottomRight);
+            AttrCornerBottomLeft.SetValue(radii.BottomLeft);
             AttrSoft.SetValue(s?.SoftEdge ?? 0);
             bool canCorner = s is ImageElement || s is ShapeElement { Kind: ShapeKind.Rectangle };
             AttrOpacity.IsEnabled = AttrSoft.IsEnabled = s != null;
-            AttrCorner.IsEnabled = canCorner;
+            AttrCornerIndividualCheck.IsEnabled = canCorner;
+            AttrCorner.IsEnabled = canCorner && !individualCorners;
             AttrCorner.Opacity = canCorner ? 1.0 : 0.35;
-            InspRadius.IsEnabled = canCorner;
+            InspIndividualCornersCheck.IsEnabled = canCorner;
+            InspRadius.IsEnabled = canCorner && !individualCorners;
             InspRadius.Opacity = canCorner ? 1.0 : 0.35;
             RefreshAppearance();
             RefreshImage();
@@ -7420,9 +7804,32 @@ public partial class MainWindow : Window
     private void InspRadius_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressInspector || _doc.Selected is not { } s) return;
+        if (s.UseIndividualCornerRadii) return;
         ArmInspectorUndo();
         if (s is ShapeElement sh) sh.CornerRadius = InspRadius.Value;
         else if (s is ImageElement im) im.CornerRadius = InspRadius.Value;
+    }
+
+    private void InspIndividualCorners_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressInspector || _doc.Selected is not { } element) return;
+        ArmInspectorUndo();
+        bool enabled = InspIndividualCornersCheck.IsChecked == true;
+        if (enabled && !element.UseIndividualCornerRadii)
+            element.IndividualCornerRadii = new CornerRadius(GetUniformCornerRadius(element));
+        element.UseIndividualCornerRadii = enabled;
+        RefreshInspector();
+        RefreshShapeToolbar();
+    }
+
+    private void InspCornerIndividual_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || sender is not ValueSlider slider || slider.Tag is not string corner
+            || _doc.Selected is not { } element || !element.UseIndividualCornerRadii) return;
+        ArmInspectorUndo();
+        element.IndividualCornerRadii = SetCornerValue(element.IndividualCornerRadii, corner, slider.Value);
+        RefreshInspector();
+        RefreshShapeToolbar();
     }
 
     private void InspStrokeThick_ValueChanged(object? sender, EventArgs e)

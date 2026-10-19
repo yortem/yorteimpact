@@ -57,6 +57,11 @@ public static class YorteProjectService
         public double Opacity { get; set; } = 100; // percent
         public double SoftEdge { get; set; }       // percent (feather), 0 = hard edges
         public double CornerRadius { get; set; }
+        public bool IndividualCorners { get; set; }
+        public double CornerTopLeft { get; set; }
+        public double CornerTopRight { get; set; }
+        public double CornerBottomRight { get; set; }
+        public double CornerBottomLeft { get; set; }
         // shadow
         public string? ShadowStyle { get; set; }
         public double ShadowX { get; set; }
@@ -189,6 +194,11 @@ public static class YorteProjectService
             OpacityStart = el.OpacityStart,
             OpacityEnd = el.OpacityEnd,
             OpacityStrength = el.OpacityStrength,
+            IndividualCorners = el.UseIndividualCornerRadii,
+            CornerTopLeft = el.IndividualCornerRadii.TopLeft,
+            CornerTopRight = el.IndividualCornerRadii.TopRight,
+            CornerBottomRight = el.IndividualCornerRadii.BottomRight,
+            CornerBottomLeft = el.IndividualCornerRadii.BottomLeft,
         };
         switch (el)
         {
@@ -345,6 +355,9 @@ public static class YorteProjectService
             el.OpacityStart = dto.OpacityStart;
             el.OpacityEnd = dto.OpacityGradient && dto.OpacityEnd <= 0 ? 100 : dto.OpacityEnd;
             el.OpacityStrength = dto.OpacityGradient && dto.OpacityStrength <= 0 ? 100 : dto.OpacityStrength;
+            el.UseIndividualCornerRadii = dto.IndividualCorners;
+            el.IndividualCornerRadii = new CornerRadius(dto.CornerTopLeft, dto.CornerTopRight,
+                dto.CornerBottomRight, dto.CornerBottomLeft);
             if (el is ImageElement im) im.CornerRadius = dto.CornerRadius;
             if (el is ImageElement image && dto.Photo is { } photo)
             {

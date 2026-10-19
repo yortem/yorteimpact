@@ -85,6 +85,11 @@ public sealed class ShapeDefaults
     public double StrokeThickness { get; set; } = 2;
     public string ShapeKind { get; set; } = "Rectangle";
     public double CornerRadius { get; set; } = 14;
+      public bool IndividualCorners { get; set; }
+      public double CornerTopLeft { get; set; } = 14;
+      public double CornerTopRight { get; set; } = 14;
+      public double CornerBottomRight { get; set; } = 14;
+      public double CornerBottomLeft { get; set; } = 14;
 
     public double Opacity { get; set; } = 100;
     public double SoftEdge { get; set; }

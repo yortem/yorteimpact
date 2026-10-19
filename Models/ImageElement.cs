@@ -30,6 +30,15 @@ public class ImageElement : DesignElement
     private ImageFitMode _fitMode = ImageFitMode.Fill;
     private Brush? _imageBrush;
 
+    public ImageElement()
+    {
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(UseIndividualCornerRadii) or nameof(IndividualCornerRadii))
+                Raise(nameof(RenderCornerRadius));
+        };
+    }
+
     public ImageSource? Source
     {
         get => _source;
@@ -69,8 +78,16 @@ public class ImageElement : DesignElement
     public double CornerRadius
     {
         get => _cornerRadius;
-        set => Set(ref _cornerRadius, Math.Max(0, value));
+        set
+        {
+            if (Set(ref _cornerRadius, Math.Max(0, value)))
+                Raise(nameof(RenderCornerRadius));
+        }
     }
+
+    public CornerRadius RenderCornerRadius => UseIndividualCornerRadii
+        ? IndividualCornerRadii
+        : new CornerRadius(CornerRadius);
 
     /// <summary>How the image fills the element box when the object is resized.</summary>
     public ImageFitMode FitMode
@@ -196,6 +213,8 @@ public class ImageElement : DesignElement
         OpacityStrength = OpacityStrength,
             Source = Source, SourcePath = SourcePath,
             CornerRadius = CornerRadius,
+            UseIndividualCornerRadii = UseIndividualCornerRadii,
+            IndividualCornerRadii = IndividualCornerRadii,
             FitMode = FitMode,
         };
         c.Adjustments.CopyFrom(Adjustments);

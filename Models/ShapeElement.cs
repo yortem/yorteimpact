@@ -63,7 +63,8 @@ public class ShapeElement : DesignElement
         // the brush has to follow the element size, not just its colors.
         PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(Width) or nameof(Height))
+            if (e.PropertyName is nameof(Width) or nameof(Height) or nameof(UseIndividualCornerRadii)
+                or nameof(IndividualCornerRadii))
             {
                 RebuildBrushes();
                 RebuildGeometry();
@@ -218,14 +219,51 @@ public class ShapeElement : DesignElement
 
             default:
             {
-                double r = Math.Min(_cornerRadius, Math.Min(w, h) / 2);
-                geometry = new RectangleGeometry(new Rect(0, 0, w, h), r, r);
+                if (UseIndividualCornerRadii)
+                    geometry = CreateIndividuallyRoundedRectangle(w, h, IndividualCornerRadii);
+                else
+                {
+                    double r = Math.Min(_cornerRadius, Math.Min(w, h) / 2);
+                    geometry = new RectangleGeometry(new Rect(0, 0, w, h), r, r);
+                }
                 break;
             }
         }
 
         if (geometry.CanFreeze) geometry.Freeze();
         ShapeGeometry = geometry;
+    }
+
+    private static Geometry CreateIndividuallyRoundedRectangle(double width, double height, CornerRadius corners)
+    {
+        double tl = corners.TopLeft, tr = corners.TopRight;
+        double br = corners.BottomRight, bl = corners.BottomLeft;
+        double scale = 1;
+        Limit(width, tl + tr);
+        Limit(width, bl + br);
+        Limit(height, tl + bl);
+        Limit(height, tr + br);
+        tl *= scale; tr *= scale; br *= scale; bl *= scale;
+
+        void Limit(double side, double sum)
+        {
+            if (sum > side && sum > 0) scale = Math.Min(scale, side / sum);
+        }
+
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(new Point(tl, 0), true, true);
+            context.LineTo(new Point(width - tr, 0), true, false);
+            if (tr > 0) context.ArcTo(new Point(width, tr), new Size(tr, tr), 0, false, SweepDirection.Clockwise, true, false);
+            context.LineTo(new Point(width, height - br), true, false);
+            if (br > 0) context.ArcTo(new Point(width - br, height), new Size(br, br), 0, false, SweepDirection.Clockwise, true, false);
+            context.LineTo(new Point(bl, height), true, false);
+            if (bl > 0) context.ArcTo(new Point(0, height - bl), new Size(bl, bl), 0, false, SweepDirection.Clockwise, true, false);
+            context.LineTo(new Point(0, tl), true, false);
+            if (tl > 0) context.ArcTo(new Point(tl, 0), new Size(tl, tl), 0, false, SweepDirection.Clockwise, true, false);
+        }
+        return geometry;
     }
 
 
@@ -346,6 +384,8 @@ public class ShapeElement : DesignElement
         shape.StrokeColor = StrokeColor;
         shape.StrokeThickness = StrokeThickness;
         shape.CornerRadius = CornerRadius;
+        shape.UseIndividualCornerRadii = UseIndividualCornerRadii;
+        shape.IndividualCornerRadii = IndividualCornerRadii;
         shape.FillImage = FillImage;
     }
 
@@ -368,6 +408,8 @@ public class ShapeElement : DesignElement
             OpacityEnd = OpacityEnd,
             OpacityStrength = OpacityStrength,
             CornerRadius = CornerRadius,
+            UseIndividualCornerRadii = UseIndividualCornerRadii,
+            IndividualCornerRadii = IndividualCornerRadii,
             Kind = Kind,
             FillColor1 = FillColor1, FillColor2 = FillColor2,
             IsGradient = IsGradient, GradientType = GradientType, GradientAngle = GradientAngle,

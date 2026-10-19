@@ -58,6 +58,8 @@ public abstract class DesignElement : INotifyPropertyChanged
     private bool _isSelected;
     private double _opacity = 100; // percent
     private double _softEdge;       // percent (feather), 0 = hard edges
+    private bool _useIndividualCornerRadii;
+    private CornerRadius _individualCornerRadii;
     private bool _useOpacityGradient;
     private OpacityFadeDirection _opacityDirection = OpacityFadeDirection.TopToBottom;
     private double _opacityStart;              // percent where the opaque area starts to fade
@@ -160,6 +162,20 @@ public abstract class DesignElement : INotifyPropertyChanged
                 Raise(nameof(OpacityMaskBrush));
             }
         }
+    }
+
+    public bool UseIndividualCornerRadii
+    {
+        get => _useIndividualCornerRadii;
+        set => Set(ref _useIndividualCornerRadii, value);
+    }
+
+    public CornerRadius IndividualCornerRadii
+    {
+        get => _individualCornerRadii;
+        set => Set(ref _individualCornerRadii, new CornerRadius(
+            Math.Max(0, value.TopLeft), Math.Max(0, value.TopRight),
+            Math.Max(0, value.BottomRight), Math.Max(0, value.BottomLeft)));
     }
 
     /// <summary>
@@ -456,6 +472,8 @@ public abstract class DesignElement : INotifyPropertyChanged
     {
         target.Opacity = Opacity;
         target.SoftEdge = SoftEdge;
+        target.UseIndividualCornerRadii = UseIndividualCornerRadii;
+        target.IndividualCornerRadii = IndividualCornerRadii;
         target.UseOpacityGradient = UseOpacityGradient;
         target.OpacityDirection = OpacityDirection;
         target.OpacityStart = OpacityStart;
