@@ -55,17 +55,17 @@ public partial class ColorPickerDialog : Window
 
     private void BuildPalette()
     {
-        // Compact modern palette: neutrals + soft pastels, one row.
+        // Modern palette: strong hues that stay a step away from pure color.
         Color[] swatches =
         {
-            Color.FromRgb(0x11, 0x18, 0x27), Color.FromRgb(0x6B, 0x72, 0x80),
-            Color.FromRgb(0xD1, 0xD5, 0xDB), Colors.White,
-            Color.FromRgb(0xFC, 0xA5, 0xA5), Color.FromRgb(0xFD, 0xBA, 0x74),
-            Color.FromRgb(0xFD, 0xE6, 0x8A), Color.FromRgb(0xBB, 0xF7, 0xD0),
-            Color.FromRgb(0xA7, 0xF3, 0xD0), Color.FromRgb(0xA5, 0xF3, 0xFC),
-            Color.FromRgb(0xBF, 0xDB, 0xFE), Color.FromRgb(0xC7, 0xD2, 0xFE),
-            Color.FromRgb(0xDD, 0xD6, 0xFE), Color.FromRgb(0xFB, 0xCF, 0xE8),
-            Color.FromRgb(0xE9, 0xD5, 0xFF), Color.FromRgb(0xFE, 0xD7, 0xAA),
+            Color.FromRgb(0xDC, 0x26, 0x26), Color.FromRgb(0xEA, 0x58, 0x0C),
+            Color.FromRgb(0xD9, 0x77, 0x06), Color.FromRgb(0xCA, 0x8A, 0x04),
+            Color.FromRgb(0x65, 0xA3, 0x0D), Color.FromRgb(0x16, 0xA3, 0x4A),
+            Color.FromRgb(0x05, 0x96, 0x69), Color.FromRgb(0x0D, 0x94, 0x88),
+            Color.FromRgb(0x08, 0x91, 0xB2), Color.FromRgb(0x02, 0x84, 0xC7),
+            Color.FromRgb(0x25, 0x63, 0xEB), Color.FromRgb(0x4F, 0x46, 0xE5),
+            Color.FromRgb(0x7C, 0x3A, 0xED), Color.FromRgb(0x93, 0x33, 0xEA),
+            Color.FromRgb(0xC0, 0x26, 0xD3), Color.FromRgb(0xDB, 0x27, 0x77),
         };
         foreach (var c in swatches)
         {
@@ -218,10 +218,11 @@ public partial class ColorPickerDialog : Window
 
     /// <summary>
     /// Distinct colors of an image, most-frequent first. The bitmap is scaled
-    /// down, bucketed to 12-bit and near-duplicate buckets are merged so the
-    /// result reads as a usable palette instead of a pixel histogram.
+    /// down and bucketed to 12-bit, then a farthest-point pass keeps only the
+    /// most different colors so the result reads as a short palette rather
+    /// than a set of near-identical shades.
     /// </summary>
-    private static List<Color> ImageColors(BitmapSource src, int max = 18)
+    private static List<Color> ImageColors(BitmapSource src, int max = 10)
     {
         var counts = new Dictionary<int, int>();
         try
@@ -255,19 +256,50 @@ public partial class ColorPickerDialog : Window
             return new List<Color>();
         }
 
-        var result = new List<Color>();
-        foreach (var kv in counts.OrderByDescending(kv => kv.Value))
+        var candidates = counts
+            .OrderByDescending(kv => kv.Value)
+            .Take(64)
+            .Select(kv => (Color: BucketColor(kv.Key), Count: kv.Value))
+            .ToList();
+
+        var chosen = new List<(Color Color, int Count)>();
+        if (candidates.Count == 0) return new List<Color>();
+
+        chosen.Add(candidates[0]);
+        candidates.RemoveAt(0);
+
+        const int minDistanceSq = 900; // ~30 levels per channel: no near-duplicates
+        while (chosen.Count < max && candidates.Count > 0)
         {
-            var c = Color.FromRgb(
-                (byte)(((kv.Key >> 8) & 0xF) * 16 + 8),
-                (byte)(((kv.Key >> 4) & 0xF) * 16 + 8),
-                (byte)((kv.Key & 0xF) * 16 + 8));
-            if (result.Any(existing => Distance(existing, c) < 24)) continue;
-            result.Add(c);
-            if (result.Count >= max) break;
+            int bestIndex = -1;
+            int bestDistance = -1;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                int nearest = int.MaxValue;
+                foreach (var existing in chosen)
+                    nearest = Math.Min(nearest, Distance(existing.Color, candidates[i].Color));
+                if (nearest > bestDistance)
+                {
+                    bestDistance = nearest;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex < 0 || bestDistance < minDistanceSq) break;
+            chosen.Add(candidates[bestIndex]);
+            candidates.RemoveAt(bestIndex);
         }
-        return result;
+
+        return chosen
+            .OrderByDescending(c => c.Count)
+            .Select(c => c.Color)
+            .ToList();
     }
+
+    private static Color BucketColor(int key) => Color.FromRgb(
+        (byte)(((key >> 8) & 0xF) * 16 + 8),
+        (byte)(((key >> 4) & 0xF) * 16 + 8),
+        (byte)((key & 0xF) * 16 + 8));
 
     private static int Distance(Color a, Color b)
     {
@@ -351,8 +383,8 @@ public partial class ColorPickerDialog : Window
                     if (s.StrokeThickness > 0) Add(s.StrokeColor, 1);
                     break;
                 case ImageElement im:
-                    SampleImage(im.DisplaySource as BitmapSource, Add);
                     if (im.Adjustments.ToneAmount > 0) Add(im.Adjustments.ToneColor, 1);
+                    if (im.Adjustments.RecolorAmount > 0) Add(im.Adjustments.RecolorColor, 1);
                     break;
                 case TextElement t:
                     Add(t.TextColor1, 3);
@@ -370,35 +402,6 @@ public partial class ColorPickerDialog : Window
                 (byte)(((kv.Key >> 4) & 0xF) * 16 + 8),
                 (byte)((kv.Key & 0xF) * 16 + 8)))
             .ToList();
-    }
-
-    private static void SampleImage(BitmapSource? src, Action<Color, int> add)
-    {
-        if (src == null || src.PixelWidth < 1 || src.PixelHeight < 1) return;
-        try
-        {
-            const int target = 32;
-            double scale = Math.Min(1.0, Math.Min((double)target / src.PixelWidth, (double)target / src.PixelHeight));
-            BitmapSource small = scale < 1.0
-                ? new TransformedBitmap(src, new ScaleTransform(scale, scale))
-                : src;
-            var conv = new FormatConvertedBitmap(small, PixelFormats.Bgra32, null, 0);
-            int w = conv.PixelWidth, h = conv.PixelHeight;
-            int stride = w * 4;
-            var px = new byte[stride * h];
-            conv.CopyPixels(px, stride, 0);
-            for (int y = 0; y < h; y++)
-            {
-                int row = y * stride;
-                for (int x = 0; x < w; x++)
-                {
-                    int i = row + x * 4;
-                    if (px[i + 3] < 32) continue; // skip near-transparent
-                    add(Color.FromRgb(px[i + 2], px[i + 1], px[i]), 1);
-                }
-            }
-        }
-        catch { /* unreadable bitmap: just skip it */ }
     }
 
     private static readonly (string Name, string[] Hexes)[] PalettePresets =
@@ -543,38 +546,7 @@ public partial class ColorPickerDialog : Window
         _screenPicking = true;
         try
         {
-            var overlay = new Window
-            {
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = Brushes.Transparent,
-                Content = new Border { Background = Brushes.Transparent },
-                Topmost = true,
-                ShowInTaskbar = false,
-                ResizeMode = ResizeMode.NoResize,
-                Cursor = Cursors.Cross,
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                Left = SystemParameters.VirtualScreenLeft,
-                Top = SystemParameters.VirtualScreenTop,
-                Width = SystemParameters.VirtualScreenWidth,
-                Height = SystemParameters.VirtualScreenHeight,
-                Owner = this,
-            };
-
-            Color? picked = null;
-            overlay.MouseLeftButtonDown += (_, me) =>
-            {
-                picked = ScreenColorSampler.SampleScreenPixel(
-                    overlay.PointToScreen(me.GetPosition(overlay)));
-                overlay.DialogResult = true;
-            };
-            overlay.PreviewKeyDown += (_, ke) =>
-            {
-                if (ke.Key == Key.Escape) overlay.DialogResult = false;
-            };
-
-            overlay.ShowDialog();
-            if (picked is { } color)
+            if (PickColorFromScreen(this) is { } color)
             {
                 FromColor(color);
                 Refresh();
@@ -584,6 +556,115 @@ public partial class ColorPickerDialog : Window
         {
             _screenPicking = false;
         }
+    }
+
+    /// <summary>
+    /// Full-screen eyedropper with a magnifier that replaces the pointer. The
+    /// desktop is captured once, so moving the mouse only moves the loupe and
+    /// shifts a viewbox, which keeps it smooth. The overlay must not be fully
+    /// transparent: layered windows ignore the mouse over alpha-0 pixels. The
+    /// final pixel is sampled live after the overlay closes.
+    /// </summary>
+    public static Color? PickColorFromScreen(Window owner)
+    {
+        const int cells = 9;
+        const double loupeSize = 126;
+
+        var snapshot = ScreenColorSampler.CaptureVirtualScreen();
+        var screenBounds = System.Windows.Forms.SystemInformation.VirtualScreen;
+
+        var brush = new ImageBrush
+        {
+            Stretch = Stretch.Fill,
+            ViewboxUnits = BrushMappingMode.Absolute,
+            ImageSource = snapshot,
+        };
+
+        var loupe = new System.Windows.Shapes.Ellipse
+        {
+            Width = loupeSize, Height = loupeSize,
+            Fill = snapshot == null
+                ? new SolidColorBrush(Color.FromRgb(0x20, 0x24, 0x2B))
+                : brush,
+            Stroke = Brushes.White, StrokeThickness = 2,
+        };
+        RenderOptions.SetBitmapScalingMode(loupe, BitmapScalingMode.NearestNeighbor);
+
+        double cell = loupeSize / cells;
+        var markerOuter = new System.Windows.Shapes.Rectangle
+        {
+            Width = cell + 2, Height = cell + 2,
+            Stroke = Brushes.Black, StrokeThickness = 2,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var markerInner = new System.Windows.Shapes.Rectangle
+        {
+            Width = cell, Height = cell,
+            Stroke = Brushes.White, StrokeThickness = 1.1,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var loupeHost = new Grid
+        {
+            Width = loupeSize, Height = loupeSize,
+            IsHitTestVisible = false, Visibility = Visibility.Collapsed,
+        };
+        loupeHost.Children.Add(loupe);
+        loupeHost.Children.Add(markerOuter);
+        loupeHost.Children.Add(markerInner);
+
+        var root = new Canvas { Background = Brushes.Transparent };
+        root.Children.Add(loupeHost);
+
+        var overlay = new Window
+        {
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)),
+            Content = root,
+            Topmost = true,
+            ShowInTaskbar = false,
+            ResizeMode = ResizeMode.NoResize,
+            Cursor = Cursors.None,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = SystemParameters.VirtualScreenLeft,
+            Top = SystemParameters.VirtualScreenTop,
+            Width = SystemParameters.VirtualScreenWidth,
+            Height = SystemParameters.VirtualScreenHeight,
+            Owner = owner,
+        };
+
+        void Update(Point p)
+        {
+            loupeHost.Visibility = Visibility.Visible;
+
+            Point screenPoint = overlay.PointToScreen(p);
+            brush.Viewbox = new Rect(
+                screenPoint.X - screenBounds.Left - cells / 2.0,
+                screenPoint.Y - screenBounds.Top - cells / 2.0,
+                cells, cells);
+
+            Canvas.SetLeft(loupeHost, p.X - loupeSize / 2);
+            Canvas.SetTop(loupeHost, p.Y - loupeSize / 2);
+        }
+
+        Point? point = null;
+        overlay.MouseMove += (_, me) => Update(me.GetPosition(overlay));
+        overlay.MouseEnter += (_, _) => Update(Mouse.GetPosition(overlay));
+        overlay.MouseLeftButtonDown += (_, me) =>
+        {
+            point = overlay.PointToScreen(me.GetPosition(overlay));
+            overlay.DialogResult = true;
+        };
+        overlay.PreviewKeyDown += (_, ke) =>
+        {
+            if (ke.Key == Key.Escape) overlay.DialogResult = false;
+        };
+
+        overlay.ShowDialog();
+        return point is { } p ? ScreenColorSampler.SampleScreenPixel(p) : null;
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)

@@ -27,6 +27,7 @@ public static class ScreenColorSampler
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
     [DllImport("gdi32.dll")] private static extern uint GetPixel(IntPtr hdc, int x, int y);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr hObject);
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int x, y; }
 
@@ -79,6 +80,46 @@ public static class ScreenColorSampler
                 (byte)(c & 0xFF), (byte)((c >> 8) & 0xFF), (byte)((c >> 16) & 0xFF));
         }
         finally { ReleaseDC(IntPtr.Zero, dc); }
+    }
+
+    /// <summary>
+    /// One-shot desktop snapshot of the whole virtual screen, used for the
+    /// magnifier preview while picking a color. Returns null if the screen
+    /// cannot be read.
+    /// </summary>
+    public static System.Windows.Media.Imaging.BitmapSource? CaptureVirtualScreen()
+    {
+        try
+        {
+            var bounds = System.Windows.Forms.SystemInformation.VirtualScreen;
+            if (bounds.Width <= 0 || bounds.Height <= 0) return null;
+
+            using var bmp = new System.Drawing.Bitmap(bounds.Width, bounds.Height,
+                System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size,
+                    System.Drawing.CopyPixelOperation.SourceCopy);
+            }
+
+            IntPtr h = bmp.GetHbitmap();
+            try
+            {
+                var src = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(
+                    h, IntPtr.Zero, System.Windows.Int32Rect.Empty,
+                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                src.Freeze();
+                return src;
+            }
+            finally
+            {
+                DeleteObject(h);
+            }
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static IntPtr Hook(int nCode, IntPtr wParam, IntPtr lParam)

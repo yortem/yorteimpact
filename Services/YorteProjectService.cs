@@ -79,6 +79,7 @@ public static class YorteProjectService
         public double StrokeThickness { get; set; }
         public string? ShapeKind { get; set; }
         public List<PolygonPointDto>? PolygonPoints { get; set; }
+        public string? FillImageBase64 { get; set; }
         // text only
         public string? Text { get; set; }
         public string? FontFamily { get; set; }
@@ -121,6 +122,8 @@ public static class YorteProjectService
         public double Glow { get; set; }
         public double ToneAmount { get; set; }
         public string? ToneColor { get; set; }
+        public double RecolorAmount { get; set; }
+        public string? RecolorColor { get; set; }
     }
 
     public sealed class PolygonPointDto
@@ -189,6 +192,8 @@ public static class YorteProjectService
                 dto.GradientType = s.GradientType.ToString();
                 dto.Stroke = ToHex(s.StrokeColor); dto.StrokeThickness = s.StrokeThickness;
                 dto.ShapeKind = s.Kind.ToString();
+                if (s.FillImage is BitmapSource fillBmp)
+                    dto.FillImageBase64 = Convert.ToBase64String(EncodePng(fillBmp));
                 if (s.Kind == ShapeKind.Polygon)
                     dto.PolygonPoints = s.PolygonPoints
                         .Select(p => new PolygonPointDto { X = p.X, Y = p.Y })
@@ -321,6 +326,11 @@ public static class YorteProjectService
                 fitted.FitMode = ParseImageFit(dto.ImageFit);
             if (el is ShapeElement shp && dto.PolygonPoints is { Count: >= 3 })
                 shp.SetPolygonPoints(dto.PolygonPoints.Select(p => new Point(p.X, p.Y)));
+            if (el is ShapeElement filled && !string.IsNullOrEmpty(dto.FillImageBase64))
+            {
+                var fillBmp = DecodeBitmap(dto.FillImageBase64);
+                if (fillBmp != null) filled.FillImage = fillBmp;
+            }
             if (el is TextElement tx) tx.EnableAnchoring();
             doc.Elements.Add(el);
         }
@@ -381,6 +391,8 @@ public static class YorteProjectService
         Glow = a.Glow,
         ToneAmount = a.ToneAmount,
         ToneColor = ToHex(a.ToneColor),
+        RecolorAmount = a.RecolorAmount,
+        RecolorColor = ToHex(a.RecolorColor),
     };
 
     private static void FromDto(PhotoAdjustDto dto, PhotoAdjustments a)
@@ -403,6 +415,8 @@ public static class YorteProjectService
         a.Glow = dto.Glow;
         a.ToneAmount = dto.ToneAmount;
         a.ToneColor = FromHex(dto.ToneColor, PhotoAdjustments.DefaultToneColor);
+        a.RecolorAmount = dto.RecolorAmount;
+        a.RecolorColor = FromHex(dto.RecolorColor, Colors.White);
     }
 
     public static byte[] EncodePng(BitmapSource bmp)

@@ -283,6 +283,7 @@ public partial class MainWindow : Window
         _slices = first.Slices;
         _activeSlice = first.ActiveSlice;
         _sliceVisible = first.SliceVisible;
+        RefreshPrimaryColorSwatch();
 
         DataContext = _doc;
         SourceInitialized += (_, _) =>
@@ -428,6 +429,7 @@ public partial class MainWindow : Window
         _zoom = tab.Zoom > 0.01 ? Math.Clamp(tab.Zoom, MinZoom, MaxZoom) : 1.0;
         Pasteboard.LayoutTransform = new ScaleTransform(_zoom, _zoom);
 
+        RefreshPrimaryColorSwatch();
         DataContext = _doc;
         OnSelectionChanged();
         UpdateArtboardFill();
@@ -472,8 +474,8 @@ public partial class MainWindow : Window
             var border = new Border
             {
                 Height = 32,
-                MinWidth = active ? 340 : 190,
-                MaxWidth = active ? 560 : 340,
+                MinWidth = active ? 272 : 152,
+                MaxWidth = active ? 448 : 272,
                 Margin = new Thickness(2, 4, 6, 4),
                 Padding = new Thickness(10, 0, 4, 0),
                 CornerRadius = new CornerRadius(6),
@@ -495,19 +497,28 @@ public partial class MainWindow : Window
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+            Color badgeColor = TabContentColor(tab) ?? TabNameColor(tab.Document.DocumentName);
+            bool lightBadge = IsLightColor(badgeColor);
+
             var icon = new Border
             {
                 Width = 16,
                 Height = 16,
                 CornerRadius = new CornerRadius(4),
-                Background = (Brush)FindResource("AccentGlossBrush"),
-                Opacity = active ? 1 : 0.7,
+                Background = new SolidColorBrush(badgeColor),
+                BorderBrush = new SolidColorBrush(lightBadge
+                    ? Color.FromArgb(0x38, 0, 0, 0)
+                    : Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
+                BorderThickness = new Thickness(1),
+                Opacity = active ? 1 : 0.75,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0),
                 Child = new TextBlock
                 {
-                    Text = "Y",
-                    Foreground = Brushes.White,
+                    Text = TabInitial(tab.Document.DocumentName),
+                    Foreground = new SolidColorBrush(lightBadge
+                        ? Color.FromRgb(0x0B, 0x12, 0x1B)
+                        : Colors.White),
                     FontFamily = new FontFamily("Segoe UI"),
                     FontWeight = FontWeights.Bold,
                     FontSize = 9,
@@ -591,6 +602,59 @@ public partial class MainWindow : Window
             TabStrip.Children.Add(border);
         }
     }
+
+    private static readonly Color[] TabBadgePalette =
+    {
+        Color.FromRgb(0xE5, 0x48, 0x4D), Color.FromRgb(0xF7, 0x6B, 0x15),
+        Color.FromRgb(0xD4, 0xA1, 0x06), Color.FromRgb(0x30, 0xA4, 0x6C),
+        Color.FromRgb(0x12, 0xA5, 0x94), Color.FromRgb(0x3B, 0x82, 0xF6),
+        Color.FromRgb(0x8E, 0x4E, 0xC6), Color.FromRgb(0xDB, 0x3F, 0xA0),
+    };
+
+    private static Color? TabContentColor(EditorTab tab)
+    {
+        try
+        {
+            var colors = ColorPickerDialog.CanvasColors(tab.Document);
+            if (colors.Count == 0) return null;
+
+            var first = colors[0];
+            if (!tab.Document.CanvasTransparent &&
+                NearColor(first, tab.Document.CanvasColor, 14))
+            {
+                return colors.Count > 1 ? colors[1] : null;
+            }
+            return first;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Color TabNameColor(string? name)
+    {
+        uint hash = 2166136261;
+        foreach (char ch in name ?? string.Empty)
+            hash = unchecked((hash ^ ch) * 16777619);
+        return TabBadgePalette[(int)(hash % (uint)TabBadgePalette.Length)];
+    }
+
+    private static string TabInitial(string? name)
+    {
+        string trimmed = name?.Trim() ?? string.Empty;
+        return trimmed.Length == 0
+            ? "?"
+            : char.ToUpperInvariant(trimmed[0]).ToString();
+    }
+
+    private static bool IsLightColor(Color c) =>
+        0.299 * c.R + 0.587 * c.G + 0.114 * c.B > 160;
+
+    private static bool NearColor(Color a, Color b, int tolerance) =>
+        Math.Abs(a.R - b.R) <= tolerance &&
+        Math.Abs(a.G - b.G) <= tolerance &&
+        Math.Abs(a.B - b.B) <= tolerance;
 
     private void NewTab_Click(object sender, RoutedEventArgs e) => AddBlankTab();
 
@@ -969,7 +1033,7 @@ public partial class MainWindow : Window
         Color original = _doc.CanvasColor;
 
         PushUndo();
-        var dlg = new ColorPickerDialog(original, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(original, CanvasColorsWithPrimary()) { Owner = this };
         dlg.PreviewColorChanged += c =>
         {
             _doc.CanvasTransparent = false;
@@ -990,6 +1054,48 @@ public partial class MainWindow : Window
             _doc.CanvasColor = original;
             UpdateArtboardFill();
         }
+    }
+
+    private List<Color> CanvasColorsWithPrimary()
+    {
+        var colors = ColorPickerDialog.CanvasColors(_doc);
+        colors.RemoveAll(c => Math.Abs(c.R - _primaryColor.R) <= 12 &&
+                              Math.Abs(c.G - _primaryColor.G) <= 12 &&
+                              Math.Abs(c.B - _primaryColor.B) <= 12);
+        colors.Insert(0, _primaryColor);
+        return colors;
+    }
+
+    private void RefreshPrimaryColorSwatch()
+    {
+        if (PrimaryColorSwatch == null) return;
+        PrimaryColorSwatch.Background = new SolidColorBrush(_primaryColor);
+        PrimaryColorSwatch.ToolTip = $"Main color {ToHex(_primaryColor)} - click to open the color picker";
+    }
+
+    private void PrimaryColor_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ColorPickerDialog(_primaryColor, CanvasColorsWithPrimary()) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        SetPrimaryColor(dlg.SelectedColor);
+    }
+
+    private void PrimaryColorPick_Click(object sender, RoutedEventArgs e)
+    {
+        if (ColorPickerDialog.PickColorFromScreen(this) is { } color)
+            SetPrimaryColor(color);
+    }
+
+    private void SetPrimaryColor(Color color)
+    {
+        _primaryColor = color;
+        if (_activeTab >= 0 && _activeTab < _tabs.Count)
+        {
+            _tabs[_activeTab].PrimaryColor = color;
+            _tabs[_activeTab].IsDirty = true;
+        }
+        RefreshPrimaryColorSwatch();
+        StatusText.Text = $"Main color set to {ToHex(color)}.";
     }
 
     private void CanvasTransparent_Click(object sender, RoutedEventArgs e)
@@ -1142,6 +1248,15 @@ public partial class MainWindow : Window
         PasteStyleMenuItem.Visibility = objectVisibility;
         PasteStyleMenuItem.IsEnabled = _styleClipboard != null;
 
+        var fillShape = _doc.Selected as ShapeElement;
+        ReplaceBackgroundMenuItem.Visibility = onObject && fillShape != null
+            ? Visibility.Visible : Visibility.Collapsed;
+        if (onObject && fillShape != null)
+        {
+            RebuildProjectImageMenu();
+            RemoveBackgroundImageMenuItem.IsEnabled = fillShape.FillImage != null;
+        }
+
         ProjectSettingsMenuItem.Visibility = canvasVisibility;
         CanvasBgColorMenuItem.Visibility = canvasVisibility;
         CanvasTransparentMenuItem.Visibility = canvasVisibility;
@@ -1166,6 +1281,93 @@ public partial class MainWindow : Window
         RefreshTextToolbar();
         RefreshPhotoPanel();
         StatusText.Text = "Style pasted.";
+    }
+
+    private void RebuildProjectImageMenu()
+    {
+        BackgroundFromProjectMenuItem.Items.Clear();
+        var images = _doc.Elements.OfType<ImageElement>()
+            .Where(im => im.Source is BitmapSource)
+            .OrderBy(im => im.ZIndex)
+            .ToList();
+        if (images.Count == 0)
+        {
+            BackgroundFromProjectMenuItem.Items.Add(new MenuItem
+            {
+                Header = "No images in the project",
+                IsEnabled = false,
+            });
+            return;
+        }
+
+        int index = 1;
+        foreach (var image in images)
+        {
+            var bmp = (BitmapSource)image.Source!;
+            string name = string.IsNullOrWhiteSpace(image.SourcePath)
+                ? $"Image {index}"
+                : System.IO.Path.GetFileNameWithoutExtension(image.SourcePath);
+            var item = new MenuItem
+            {
+                Header = $"{name} ({bmp.PixelWidth} \u00D7 {bmp.PixelHeight})",
+                Tag = image,
+            };
+            item.Click += ProjectImageFill_Click;
+            BackgroundFromProjectMenuItem.Items.Add(item);
+            index++;
+        }
+    }
+
+    private void ProjectImageFill_Click(object sender, RoutedEventArgs e)
+    {
+        if (_doc.Selected is not ShapeElement shape) return;
+        if (sender is not MenuItem { Tag: ImageElement source }) return;
+        SetShapeFillImage(shape, source.DisplaySource as BitmapSource ?? source.Source as BitmapSource);
+    }
+
+    private void ReplaceBackgroundFromFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_doc.Selected is not ShapeElement shape) return;
+
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp;*.tif;*.tiff|All files|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = new Uri(dlg.FileName, UriKind.Absolute);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+            SetShapeFillImage(shape, bmp);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Could not load that image:\n" + ex.Message, "YorteImpact",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void RemoveBackgroundImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_doc.Selected is not ShapeElement shape || shape.FillImage == null) return;
+        PushUndo();
+        shape.FillImage = null;
+        RefreshInspector();
+        StatusText.Text = "Shape background image removed.";
+    }
+
+    private void SetShapeFillImage(ShapeElement shape, BitmapSource? bmp)
+    {
+        if (bmp == null) return;
+        PushUndo();
+        shape.FillImage = bmp;
+        RefreshInspector();
+        StatusText.Text = "Shape background replaced with an image.";
     }
 
     private void SaveElementTransparent_Click(object sender, RoutedEventArgs e) =>
@@ -1562,6 +1764,7 @@ public partial class MainWindow : Window
     {
         if (_drag != DragMode.Paint)
             BrushCursor.Visibility = Visibility.Collapsed;
+        if (_drag == DragMode.Draw) HideDrawSizeTip();
     }
 
     private void Pasteboard_MouseUp(object sender, MouseButtonEventArgs e)
@@ -2172,7 +2375,36 @@ public partial class MainWindow : Window
         DrawShapeVisual.Visibility = Visibility.Visible;
     }
 
-    private void UpdateDrawVisual(Point pos) => PositionDrawVisual(CurrentDrawRect(pos));
+    private void UpdateDrawVisual(Point pos)
+    {
+        var rect = CurrentDrawRect(pos);
+        PositionDrawVisual(rect);
+        ShowDrawSizeTip(rect);
+    }
+
+    private void ShowDrawSizeTip(Rect rect)
+    {
+        if (rect.Width < 0.5 && rect.Height < 0.5)
+        {
+            HideDrawSizeTip();
+            return;
+        }
+
+        DrawSizeTipText.Text = $"{rect.Width:F0} \u00D7 {rect.Height:F0} px";
+        DrawSizeTip.Visibility = Visibility.Visible;
+        DrawSizeTip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var size = DrawSizeTip.DesiredSize;
+
+        var p = Mouse.GetPosition(InteractionOverlay);
+        double x = p.X + 16;
+        double y = p.Y + 18;
+        if (x + size.Width + 6 > InteractionOverlay.ActualWidth) x = p.X - 16 - size.Width;
+        if (y + size.Height + 6 > InteractionOverlay.ActualHeight) y = p.Y - 18 - size.Height;
+        Canvas.SetLeft(DrawSizeTip, Math.Max(4, x));
+        Canvas.SetTop(DrawSizeTip, Math.Max(4, y));
+    }
+
+    private void HideDrawSizeTip() => DrawSizeTip.Visibility = Visibility.Collapsed;
 
     private Rect CurrentDrawRect(Point pos)
     {
@@ -2267,6 +2499,7 @@ public partial class MainWindow : Window
     {
         var rect = CurrentDrawRect(pos);
         DrawShapeVisual.Visibility = Visibility.Collapsed;
+        HideDrawSizeTip();
         if (rect.Width < 1 || rect.Height < 1) return; // plain click: draw nothing
 
         PushUndo();
@@ -2812,7 +3045,7 @@ public partial class MainWindow : Window
                 return;
             }
             if (_drag == DragMode.Paint) EndBrushStroke();
-            if (_drag == DragMode.Draw) DrawShapeVisual.Visibility = Visibility.Collapsed;
+            if (_drag == DragMode.Draw) { DrawShapeVisual.Visibility = Visibility.Collapsed; HideDrawSizeTip(); }
             if (_drag != DragMode.None) { _drag = DragMode.None; _moveUndoPending = false; HideSnapGuides(); Pasteboard.ReleaseMouseCapture(); }
             else if (_tool != ActiveTool.Pick) SetTool(ActiveTool.Pick);
             else
@@ -3021,10 +3254,16 @@ public partial class MainWindow : Window
 
     private Point PasteTarget()
     {
+        var art = _doc.ArtboardRect;
         var mouse = Mouse.GetPosition(Pasteboard);
-        if (mouse.X >= 0 && mouse.Y >= 0 && mouse.X <= Pasteboard.Width && mouse.Y <= Pasteboard.Height)
-            return mouse;
-        return ViewportCenterModel();
+        if (art.Contains(mouse)) return mouse;
+
+        // The pasteboard margin is outside the visible canvas: pasting there
+        // would hide the image under the artboard clip and make it unpickable.
+        var center = ViewportCenterModel();
+        if (art.Contains(center)) return center;
+
+        return new Point(art.X + art.Width / 2, art.Y + art.Height / 2);
     }
 
     private void PasteFromClipboardOrPrototype()
@@ -3080,12 +3319,23 @@ public partial class MainWindow : Window
     {
         PushUndo();
         var el = new ImageElement();
-        el.SetBitmap(bmp);
-        el.X = at.X - el.Width / 2;
-        el.Y = at.Y - el.Height / 2;
+        el.SetBitmap(bmp); // one canvas unit per image pixel
+        PlaceImageOnCanvas(el, at);
         _doc.Add(el);
         StatusText.Text = $"Pasted image {bmp.PixelWidth}×{bmp.PixelHeight}px.";
         NoteIfOutsideCanvas();
+    }
+
+    /// <summary>Center the image on <paramref name="at"/> but keep it on the canvas.</summary>
+    private void PlaceImageOnCanvas(ImageElement el, Point at)
+    {
+        var art = _doc.ArtboardRect;
+        el.X = el.Width <= art.Width
+            ? Math.Clamp(at.X - el.Width / 2, art.Left, art.Right - el.Width)
+            : art.Left + (art.Width - el.Width) / 2;
+        el.Y = el.Height <= art.Height
+            ? Math.Clamp(at.Y - el.Height / 2, art.Top, art.Bottom - el.Height)
+            : art.Top + (art.Height - el.Height) / 2;
     }
 
     /// <summary>Hint when an element lands fully outside the canvas (still recoverable via its box).</summary>
@@ -3449,8 +3699,7 @@ public partial class MainWindow : Window
 
             var el = new ImageElement { SourcePath = f };
             el.SetBitmap(bmp);
-            el.X = pos.X - el.Width / 2;
-            el.Y = pos.Y - el.Height / 2;
+            PlaceImageOnCanvas(el, pos);
             if (!undoPushed) { PushUndo(); undoPushed = true; }
             _doc.Add(el);
             return true;
@@ -3798,7 +4047,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedShape;
         var src = target ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.FillColor1, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(src.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -3817,7 +4066,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedShape;
         var src = target ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.FillColor2, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(src.FillColor2, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -3893,7 +4142,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedShape;
         var src = target ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.StrokeColor, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(src.StrokeColor, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -3957,7 +4206,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedShape;
         var src = target ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.ShadowColor, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(src.ShadowColor, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -4108,7 +4357,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedText;
         var dlg = new ColorPickerDialog(target?.TextColor1 ?? _textDefaults.TextColor1,
-            ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+            CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -4245,7 +4494,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedText;
         var dlg = new ColorPickerDialog(target?.BorderColor ?? _textDefaults.BorderColor,
-            ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+            CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -4289,7 +4538,7 @@ public partial class MainWindow : Window
     {
         var target = SelectedText;
         var dlg = new ColorPickerDialog(target?.ShadowColor ?? _textDefaults.ShadowColor,
-            ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+            CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (target != null)
         {
@@ -4454,6 +4703,7 @@ public partial class MainWindow : Window
             if (Pasteboard.IsMouseCaptured) Pasteboard.ReleaseMouseCapture();
         }
         if (tool != ActiveTool.Paintbrush) BrushCursor.Visibility = Visibility.Collapsed;
+        HideDrawSizeTip();
         _tool = tool;
         if (leftSlice) ClearSlice(); // slice regions belong to the Slice tool: leaving it resets them
         UpdateToolUI();
@@ -4816,7 +5066,7 @@ public partial class MainWindow : Window
 
     private void AttrBrushColor_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new ColorPickerDialog(_brushSettings.Color, ColorPickerDialog.CanvasColors(_doc))
+        var dlg = new ColorPickerDialog(_brushSettings.Color, CanvasColorsWithPrimary())
         {
             Owner = this,
         };
@@ -5870,7 +6120,7 @@ public partial class MainWindow : Window
         if (_doc.Selected is not ImageElement im) return;
 
         var adjustments = im.Adjustments;
-        var dlg = new ColorPickerDialog(adjustments.ToneColor, ColorPickerDialog.CanvasColors(_doc))
+        var dlg = new ColorPickerDialog(adjustments.ToneColor, CanvasColorsWithPrimary())
         {
             Owner = this,
         };
@@ -6633,12 +6883,12 @@ public partial class MainWindow : Window
         sh.StrokeThickness = InspStrokeThick.Value;
     }
 
-    /// <summary>Ctrl+F: pick the selected shape's fill color or the selected text's color.</summary>
+    /// <summary>Ctrl+F: pick a shape fill, text color, or image color.</summary>
     private void PickElementFill()
     {
         if (_doc.Selected is TextElement te)
         {
-            var dlg = new ColorPickerDialog(te.TextColor1, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+            var dlg = new ColorPickerDialog(te.TextColor1, CanvasColorsWithPrimary()) { Owner = this };
             if (dlg.ShowDialog() != true) return;
             PushUndo();
             te.TextColor1 = dlg.SelectedColor;
@@ -6648,9 +6898,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_doc.Selected is ImageElement)
+        if (_doc.Selected is ImageElement image)
         {
-            StatusText.Text = "The selected object is an image - use the Photo tab for color and tone adjustments.";
+            var adjustments = image.Adjustments;
+            var initial = adjustments.RecolorAmount > 0 ? adjustments.RecolorColor : _primaryColor;
+            var dlgImage = new ColorPickerDialog(initial, CanvasColorsWithPrimary()) { Owner = this };
+            if (dlgImage.ShowDialog() != true) return;
+            PushUndo();
+            _inspectorArmed = false;
+            adjustments.RecolorColor = dlgImage.SelectedColor;
+            adjustments.RecolorAmount = 100;
+            image.RefreshPhotoPreview();
+            RefreshInspector();
+            RefreshPhotoPanel();
+            StatusText.Text = $"Image color set to {ToHex(dlgImage.SelectedColor)}.";
             return;
         }
 
@@ -6664,7 +6925,7 @@ public partial class MainWindow : Window
             PickCanvasColor();
             return;
         }
-        var dlgShape = new ColorPickerDialog(sh.FillColor1, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlgShape = new ColorPickerDialog(sh.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
         if (dlgShape.ShowDialog() != true) return;
         PushUndo();
         sh.FillColor1 = dlgShape.SelectedColor;
@@ -6728,7 +6989,7 @@ public partial class MainWindow : Window
         }
 
         PushUndo(); // one undo step for the whole picker session
-        var dlg = new ColorPickerDialog(original, ColorPickerDialog.CanvasColors(_doc)) { Owner = this };
+        var dlg = new ColorPickerDialog(original, CanvasColorsWithPrimary()) { Owner = this };
         dlg.PreviewColorChanged += c => apply(c); // live on the canvas while the dialog is open
         if (dlg.ShowDialog() == true)
         {

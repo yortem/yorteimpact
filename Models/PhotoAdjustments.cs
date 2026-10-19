@@ -29,6 +29,8 @@ public sealed class PhotoAdjustments
     private double _glow;
     private double _toneAmount;
     private Color _toneColor = DefaultToneColor;
+    private double _recolorAmount;
+    private Color _recolorColor = Colors.White;
 
     /// <summary>Exposure in stops, -5..+5.</summary>
     public double Exposure { get => _exposure; set => _exposure = Clamp(value, -5, 5); }
@@ -56,18 +58,23 @@ public sealed class PhotoAdjustments
     public double ToneAmount { get => _toneAmount; set => _toneAmount = Clamp(value, 0, 100); }
     public Color ToneColor { get => _toneColor; set => _toneColor = value; }
 
+    /// <summary>Replaces the image color with one color while keeping alpha, 0..100.</summary>
+    public double RecolorAmount { get => _recolorAmount; set => _recolorAmount = Clamp(value, 0, 100); }
+    public Color RecolorColor { get => _recolorColor; set => _recolorColor = value; }
+
     public bool IsDefault =>
         _exposure == 0 && _contrast == 0 && _highlights == 0 && _shadows == 0 &&
         _whites == 0 && _blacks == 0 && _temperature == 0 && _tint == 0 &&
         _vibrance == 0 && _saturation == 0 && _clarity == 0 && _vignette == 0 &&
-        _grain == 0 && _blur == 0 && _sharpen == 0 && _glow == 0 && _toneAmount == 0;
+        _grain == 0 && _blur == 0 && _sharpen == 0 && _glow == 0 && _toneAmount == 0 &&
+        _recolorAmount == 0;
 
     public void Reset()
     {
         _exposure = _contrast = _highlights = _shadows = _whites = _blacks = 0;
         _temperature = _tint = _vibrance = _saturation = 0;
         _clarity = _vignette = _grain = 0;
-        _blur = _sharpen = _glow = _toneAmount = 0;
+        _blur = _sharpen = _glow = _toneAmount = _recolorAmount = 0;
     }
 
     public void CopyFrom(PhotoAdjustments? other)
@@ -91,6 +98,8 @@ public sealed class PhotoAdjustments
         Glow = other.Glow;
         ToneAmount = other.ToneAmount;
         ToneColor = other.ToneColor;
+        RecolorAmount = other.RecolorAmount;
+        RecolorColor = other.RecolorColor;
     }
 
     public PhotoAdjustments Clone()

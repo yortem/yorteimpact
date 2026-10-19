@@ -194,6 +194,7 @@ public static class PhotoAdjustmentService
         }
 
         if (a.ToneAmount > 0) ApplyTone(px, a);
+        if (a.RecolorAmount > 0) ApplyRecolor(px, a);
         if (a.Clarity != 0) ApplyClarity(px, w, h, a.Clarity);
         if (a.Sharpen > 0) ApplySharpen(px, w, h, a.Sharpen);
         if (a.Glow > 0) ApplyGlow(px, w, h, a.Glow);
@@ -273,6 +274,22 @@ public static class PhotoAdjustmentService
             double g = (darkG + (lightG - darkG) * luma) * 255.0;
             double b = (darkB + (lightB - darkB) * luma) * 255.0;
 
+            px[i] = ToByte(px[i] + (b - px[i]) * amount);
+            px[i + 1] = ToByte(px[i + 1] + (g - px[i + 1]) * amount);
+            px[i + 2] = ToByte(px[i + 2] + (r - px[i + 2]) * amount);
+        }
+    }
+
+    private static void ApplyRecolor(byte[] px, PhotoAdjustments a)
+    {
+        double amount = a.RecolorAmount / 100.0;
+        if (amount <= 0) return;
+
+        byte r = a.RecolorColor.R;
+        byte g = a.RecolorColor.G;
+        byte b = a.RecolorColor.B;
+        for (int i = 0; i < px.Length; i += 4)
+        {
             px[i] = ToByte(px[i] + (b - px[i]) * amount);
             px[i + 1] = ToByte(px[i + 1] + (g - px[i + 1]) * amount);
             px[i + 2] = ToByte(px[i + 2] + (r - px[i + 2]) * amount);

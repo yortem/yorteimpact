@@ -457,25 +457,34 @@
 
     <!-- collapsible "extra settings" header -->
     <Style x:Key="ExtraHeader" TargetType="ToggleButton">
-      <Setter Property="Foreground" Value="#C7D6E6"/>
-      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="Foreground" Value="#E6EEF6"/>
+      <Setter Property="FontSize" Value="11.5"/>
       <Setter Property="FontWeight" Value="Bold"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="-11,-11,-11,0"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ToggleButton">
-            <Grid Background="Transparent" Height="24">
-              <ContentPresenter ContentSource="Content" VerticalAlignment="Center"
-                                TextElement.Foreground="{TemplateBinding Foreground}"/>
-              <Path x:Name="Chev" Data="M0,0 L4,4 L8,0" Stroke="{TemplateBinding Foreground}"
-                    StrokeThickness="1.5" HorizontalAlignment="Right" VerticalAlignment="Center"
-                    RenderTransformOrigin="0.5,0.5">
-                <Path.RenderTransform>
-                  <RotateTransform Angle="0"/>
-                </Path.RenderTransform>
-              </Path>
-            </Grid>
+            <Border x:Name="Bd" Background="#111A27" BorderBrush="#1A2636"
+                    BorderThickness="0,0,0,1" Height="38">
+              <Grid>
+                <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                <ContentPresenter ContentSource="Content" HorizontalAlignment="Left"
+                                  VerticalAlignment="Center" Margin="14,0,0,0"
+                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                <Path x:Name="Chev" Data="M0,0 L4,4 L8,0" Stroke="{TemplateBinding Foreground}"
+                      StrokeThickness="1.5" HorizontalAlignment="Right" VerticalAlignment="Center"
+                      Margin="0,0,14,0" RenderTransformOrigin="0.5,0.5">
+                  <Path.RenderTransform>
+                    <RotateTransform Angle="0"/>
+                  </Path.RenderTransform>
+                </Path>
+              </Grid>
+            </Border>
             <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
               <Trigger Property="IsChecked" Value="True">
                 <Setter Property="Foreground" Value="#E6EEF6"/>
                 <Setter TargetName="Chev" Property="RenderTransform">
@@ -490,12 +499,29 @@
       </Setter>
     </Style>
 
+    <!-- full-width header band inside a section card (the card has 11px padding) -->
+    <Style x:Key="SectionBand" TargetType="Border">
+      <Setter Property="Background" Value="#111A27"/>
+      <Setter Property="BorderBrush" Value="#1A2636"/>
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="Height" Value="38"/>
+      <Setter Property="Margin" Value="-11,-11,-11,12"/>
+    </Style>
+
+    <!-- same band for stand-alone panel titles (no card padding) -->
+    <Style x:Key="TopBand" TargetType="Border">
+      <Setter Property="Background" Value="#111A27"/>
+      <Setter Property="BorderBrush" Value="#1A2636"/>
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="Height" Value="38"/>
+    </Style>
+
     <!-- inspector card titles are brighter than field labels / values -->
     <Style x:Key="SectionHeader" TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#C7D6E6"/>
+      <Setter Property="Foreground" Value="#E6EEF6"/>
       <Setter Property="FontWeight" Value="Bold"/>
-      <Setter Property="FontSize" Value="10"/>
-      <Setter Property="Margin" Value="0,0,0,8"/>
+      <Setter Property="FontSize" Value="11.5"/>
+      <Setter Property="Margin" Value="0"/>
     </Style>
 
     <!-- right panel tabs: Inspector / Photo -->
@@ -786,6 +812,16 @@
                       Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                 <ContentPresenter Grid.Column="1" ContentSource="Header"
                                   RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-4" VerticalOffset="-6"
+                       IsOpen="{TemplateBinding IsSubmenuOpen}" AllowsTransparency="True"
+                       Focusable="False" PopupAnimation="Fade">
+                  <Border Background="#0D131D" BorderBrush="#223248" BorderThickness="1"
+                          CornerRadius="5" Padding="4" MaxHeight="420">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                      <ItemsPresenter/>
+                    </ScrollViewer>
+                  </Border>
+                </Popup>
               </Grid>
             </Border>
             <ControlTemplate.Triggers>
@@ -1026,11 +1062,13 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,4,0">
-          <Image Source="pack://application:,,,/favicon.ico" Width="16" Height="16"
-                 RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock Text="YorteImpact" Foreground="#8EA0B4" FontSize="11" FontWeight="SemiBold"
-                     Margin="8,0,10,0" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,10,0">
+          <TextBlock VerticalAlignment="Center" FontFamily="Segoe UI" FontWeight="Black" FontSize="17"
+                     TextOptions.TextFormattingMode="Ideal"
+                     TextOptions.TextRenderingMode="Grayscale">
+            <Run Text="Y&#x200A;O&#x200A;R&#x200A;T&#x200A;E" Foreground="#FFFFFF"/>
+            <Run Text="&#x200A;I&#x200A;M&#x200A;P&#x200A;A&#x200A;C&#x200A;T" Foreground="{StaticResource LogoImpactBrush}"/>
+          </TextBlock>
         </StackPanel>
 
         <ScrollViewer x:Name="TabDropArea" Grid.Column="1" HorizontalScrollBarVisibility="Hidden"
@@ -1089,49 +1127,76 @@
           <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- logo -->
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,30,0">
-          <TextBlock VerticalAlignment="Center" FontFamily="Segoe UI" FontWeight="Black" FontSize="16"
-                     TextOptions.TextFormattingMode="Ideal">
-            <Run Text="Y&#x200A;O&#x200A;R&#x200A;T&#x200A;E" Foreground="#FFFFFF"/>
-            <Run Text="&#x200A;I&#x200A;M&#x200A;P&#x200A;A&#x200A;C&#x200A;T" Foreground="{StaticResource LogoImpactBrush}"/>
-          </TextBlock>
-        </StackPanel>
-
         <!-- file actions -->
-        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
           <Button Style="{StaticResource TopBtn}" Click="NewCanvas_Click" ToolTip="New canvas — define size in pixels (Ctrl+N)">
             <StackPanel Orientation="Horizontal">
-              <Path Data="M5,3 H19 V21 H5 Z M12,8 V16 M8,12 H16" Stroke="{StaticResource IconBrush}"
-                    StrokeThickness="1.8" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
+              <Viewbox Width="16" Height="16">
+                <Canvas Width="24" Height="24">
+                  <Path Data="M5,2.5 H13.5 L19,8 V21.5 H5 Z M13.5,2.5 V8 H19"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        StrokeLineJoin="Round" Fill="Transparent"/>
+                  <Path Data="M12,11.5 V17.5 M9,14.5 H15"
+                        Stroke="#5FBBFF" StrokeThickness="1.8"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                </Canvas>
+              </Viewbox>
               <TextBlock Text="New" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
           <Button Style="{StaticResource TopBtn}" Click="OpenProject_Click" ToolTip="Open project (.yimpact) (Ctrl+O)">
             <StackPanel Orientation="Horizontal">
-              <Path Data="M3,6 H9 L11,8 H21 V19 H3 Z" Stroke="{StaticResource IconBrush}"
-                    StrokeThickness="1.8" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
+              <Viewbox Width="16" Height="16">
+                <Canvas Width="24" Height="24">
+                  <Path Data="M3.5,7 H9.2 L11.2,9.2 H20.5 V19.5 H3.5 Z M3.5,7 V4.5 H8.7 L10.7,7"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        StrokeLineJoin="Round" Fill="Transparent"/>
+                  <Path Data="M3.5,11.5 H20.5" Stroke="#5FBBFF" StrokeThickness="1.4"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                </Canvas>
+              </Viewbox>
               <TextBlock Text="Open" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
           <Button Style="{StaticResource TopBtn}" Click="SaveProject_Click" ToolTip="Save — choose format in the dialog: .yimpact project, PNG, GIF or WebP (Ctrl+S). Save As: Ctrl+Shift+S">
             <StackPanel Orientation="Horizontal">
-              <Path Data="M5,4 H16 L20,8 V20 H5 Z M8,4 V9 H15 V4 M8,20 V14 H16 V20"
-                    Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
-                    Width="15" Height="15" Stretch="Uniform"/>
+              <Viewbox Width="16" Height="16">
+                <Canvas Width="24" Height="24">
+                  <Path Data="M5,3.5 H15.5 L20.5,8.5 V20.5 H5 Z M8,3.5 V9.5 H15.5 V3.5 M8,20.5 V14.5 H17 V20.5"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.55"
+                        StrokeLineJoin="Round" Fill="Transparent"/>
+                  <Path Data="M10.5,6.2 H13" Stroke="#5FBBFF" StrokeThickness="1.3"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                </Canvas>
+              </Viewbox>
               <TextBlock Text="Save" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
+          <Border Width="1" Height="18" Background="#223248" Margin="5,0"
+                  VerticalAlignment="Center"/>
           <Button Style="{StaticResource TopBtn}" Click="CopyAiBrief_Click" ToolTip="Copy a compact AI-readable brief of this sketch">
             <StackPanel Orientation="Horizontal">
-              <Path Data="M4,4 H16 V20 H4 Z M7,4 V2 H13 V4 M7,10 H13 M7,14 H13"
-                    Stroke="{StaticResource IconBrush}" StrokeThickness="1.7" Fill="Transparent"
-                    Width="15" Height="15" Stretch="Uniform"/>
+              <Viewbox Width="16" Height="16">
+                <Canvas Width="24" Height="24">
+                  <Path Data="M4,4 H14 V18 H4 Z M7,4 V2 H17 V16"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                        StrokeLineJoin="Round" Fill="Transparent"/>
+                  <Path Data="M7,8 H11 M7,11 H11 M7,14 H10"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.3"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                  <Path Data="M18.7,3.2 L19.5,5.6 L21.9,6.4 L19.5,7.2 L18.7,9.6 L17.9,7.2 L15.5,6.4 L17.9,5.6 Z"
+                        Fill="#7FD0FF"/>
+                </Canvas>
+              </Viewbox>
               <TextBlock Text="Copy for AI" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
           <Button Style="{StaticResource TopBtn}" Click="Settings_Click" ToolTip="Settings (Ctrl+,) — default canvas size">
-            <TextBlock Text="Settings" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                         Foreground="{StaticResource IconBrush}" VerticalAlignment="Center"/>
+              <TextBlock Text="Settings" Margin="6,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
           </Button>
         </StackPanel>
 
@@ -1213,7 +1278,7 @@
 
               <Border Style="{StaticResource AttrSep}" Margin="10,7,16,7"/>
               <Button Style="{StaticResource AttrBtn}" Click="BringFront_Click" ToolTip="Bring to front (top level)">
-                <Path Data="M6,12 L12,6 L18,12 M6,17 L12,11 L18,17" Stroke="{StaticResource IconBrush}"
+                <Path Data="M4,3 H20 M12,20 V7 M7,11 L12,6 L17,11" Stroke="{StaticResource IconBrush}"
                       StrokeThickness="1.9" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
               </Button>
               <Button Style="{StaticResource AttrBtn}" Click="BringFwd_Click" ToolTip="Bring forward (up one level)">
@@ -1225,7 +1290,7 @@
                       StrokeThickness="2" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
               </Button>
               <Button Style="{StaticResource AttrBtn}" Click="SendBack_Click" ToolTip="Send to back (bottom level)">
-                <Path Data="M6,7 L12,13 L18,7 M6,12 L12,18 L18,12" Stroke="{StaticResource IconBrush}"
+                <Path Data="M4,21 H20 M12,4 V17 M7,13 L12,18 L17,13" Stroke="{StaticResource IconBrush}"
                       StrokeThickness="1.9" Fill="Transparent" Width="15" Height="15" Stretch="Uniform"/>
               </Button>
 
@@ -1797,16 +1862,36 @@
             <Path Data="M4,5 H20 M12,5 V20" Stroke="{StaticResource IconBrush}"
                   StrokeThickness="2" Fill="Transparent" Width="20" Height="20" Stretch="Uniform"/>
           </ToggleButton>
+
+          <Border Style="{StaticResource RailDivider}"/>
+          <Button Style="{StaticResource SideBtn}" Click="PrimaryColorPick_Click"
+                  ToolTip="Color picker - pick the main color from the screen">
+            <Viewbox Width="20" Height="20">
+              <Canvas Width="24" Height="24">
+                <Path Data="M4,20 L5,15.2 L15.2,5 L19,8.8 L8.8,19 Z"
+                      Fill="{StaticResource IconBrush}"/>
+                <Path Data="M15.2,5 L17.6,2.6 A2.6,2.6 0 0 1 21.4,6.4 L19,8.8 Z"
+                      Fill="{StaticResource IconBrush}"/>
+                <Path Data="M4,20 L5,15.2 L8.8,19 Z" Fill="#2E9BFF"/>
+              </Canvas>
+            </Viewbox>
+          </Button>
+          <Button Style="{StaticResource SideBtn}" Click="PrimaryColor_Click"
+                  ToolTip="Main color - click to open the color picker">
+            <Border x:Name="PrimaryColorSwatch" Width="20" Height="20" CornerRadius="4"
+                    BorderBrush="#6B7C92" BorderThickness="1"/>
+          </Button>
         </StackPanel>
       </DockPanel>
     </Border>
 
     <!-- ================= RIGHT INSPECTOR ================= -->
-    <Border x:Name="InspectorBorder" DockPanel.Dock="Right" Width="260" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="1,0,0,0">
-      <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+    <Border x:Name="InspectorBorder" DockPanel.Dock="Right" Width="260" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="0">
+      <Grid>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0">
         <StackPanel>
           <Border Background="#0B121B" BorderBrush="#1A2636" BorderThickness="1"
-                  CornerRadius="5" Padding="2" Margin="0,0,0,9">
+                  CornerRadius="5" Padding="2" Margin="12,12,12,9">
             <UniformGrid x:Name="RightTabs" Columns="2">
               <ToggleButton x:Name="InspectorTabBtn" Style="{StaticResource RightTabBtn}"
                             Content="Inspector" IsChecked="True" Click="InspectorTab_Click"/>
@@ -1817,18 +1902,30 @@
             </UniformGrid>
           </Border>
           <Border x:Name="MultiSelectionCard" Visibility="Collapsed"
-                  Background="#111A27" BorderBrush="#223248" BorderThickness="1"
-                  CornerRadius="5" Padding="11" Margin="0,0,0,9">
+                  Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1"
+                  Padding="11" Margin="0">
             <StackPanel>
-              <TextBlock x:Name="MultiSelectionText" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock x:Name="MultiSelectionText" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
                          Text="Drag a selected object to move the group. Shift = snap, arrow keys nudge, Delete removes all."/>
             </StackPanel>
           </Border>
           <StackPanel x:Name="InspectorPanel">
-          <Border Background="#111A27" CornerRadius="5" Padding="11" x:Name="GeometryCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="GeometryCard">
             <StackPanel>
-              <TextBlock Text="GEOMETRY" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="GEOMETRY" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
@@ -1877,10 +1974,16 @@
             </StackPanel>
           </Border>
 
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0"
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11"
                   x:Name="ImageCard" Visibility="Collapsed">
             <StackPanel>
-              <TextBlock Text="IMAGE" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="IMAGE" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <TextBlock Text="Resize mode" Style="{StaticResource FieldLabel}"/>
               <Border Style="{StaticResource SegGroup}" Margin="0,2,0,0">
                 <StackPanel Orientation="Horizontal">
@@ -1898,9 +2001,15 @@
             </StackPanel>
           </Border>
 
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="RotationCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="RotationCard">
             <StackPanel>
-              <TextBlock Text="ROTATION" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="ROTATION" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <controls:ValueSlider Decimals="0" x:Name="InspRot" Suffix="°"
@@ -1920,9 +2029,15 @@
           </Border>
 
           <!-- Shape fill + border (visible only for ShapeElement) -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="AppearanceCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="AppearanceCard">
             <StackPanel>
-              <TextBlock Text="APPEARANCE" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="APPEARANCE" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <TextBlock Text="Fill" Style="{StaticResource FieldLabel}"/>
               <Border Style="{StaticResource SegGroup}" Margin="0,0,0,6">
                 <StackPanel Orientation="Horizontal">
@@ -2001,9 +2116,15 @@
           </Border>
 
           <!-- Font + style + alignment (visible only for TextElement) -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="TextCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="TextCard">
             <StackPanel>
-              <TextBlock Text="TEXT" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="TEXT" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
 
               <TextBlock Text="Font" Style="{StaticResource FieldLabel}"/>
               <Grid Margin="0,0,0,6">
@@ -2085,9 +2206,15 @@
           </Border>
 
           <!-- Text fill / gradient -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="TextFillCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="TextFillCard">
             <StackPanel>
-              <TextBlock Text="FILL" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="FILL" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
 
               <Border Style="{StaticResource SegGroup}" Margin="0,0,0,6">
                 <StackPanel Orientation="Horizontal">
@@ -2150,10 +2277,10 @@
           </Border>
 
           <!-- Directional fade-to-transparent (collapsible) -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="TransparencyCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0" x:Name="TransparencyCard">
             <StackPanel>
               <ToggleButton x:Name="TransparencyToggle" Style="{StaticResource ExtraHeader}" Content="TRANSPARENCY" Click="Transparency_Click"/>
-              <StackPanel x:Name="TransparencyContent" Visibility="Collapsed" Margin="0,10,0,0">
+              <StackPanel x:Name="TransparencyContent" Visibility="Collapsed" Margin="0,10,0,11">
                 <CheckBox x:Name="OpacityGradientCheck" Style="{StaticResource DarkSwitch}" Content="Gradient transparency"
                           Checked="OpacityGradient_Toggled" Unchecked="OpacityGradient_Toggled"/>
                 <StackPanel x:Name="OpacityOptions" Visibility="Collapsed" Margin="0,8,0,0">
@@ -2194,10 +2321,10 @@
           </Border>
 
           <!-- Spacing / wrap / shadow, hidden until expanded -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="TextExtraCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0" x:Name="TextExtraCard">
             <StackPanel>
               <ToggleButton x:Name="TextExtraToggle" Style="{StaticResource ExtraHeader}" Content="EXTRA SETTINGS" Click="TextExtra_Click"/>
-              <StackPanel x:Name="TextExtraContent" Visibility="Collapsed" Margin="0,10,0,0">
+              <StackPanel x:Name="TextExtraContent" Visibility="Collapsed" Margin="0,10,0,11">
                 <Grid>
                   <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
                   <TextBlock Text="Letter spacing" Foreground="{StaticResource MutedBrush}" FontSize="10" VerticalAlignment="Center"/>
@@ -2259,9 +2386,15 @@
           </Border>
 
           <!-- Shadow (any element) -->
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0" x:Name="ShadowCard">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11" x:Name="ShadowCard">
             <StackPanel>
-              <TextBlock Text="SHADOW" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="SHADOW" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <ItemsControl x:Name="ShadowPresetList" Margin="0,2,0,4">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
@@ -2312,9 +2445,15 @@
             </StackPanel>
           </Border>
 
-          <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+          <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
             <StackPanel>
-              <TextBlock Text="WORKFLOW" Style="{StaticResource SectionHeader}"/>
+              <Border Style="{StaticResource SectionBand}">
+                <Grid>
+                  <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                  <TextBlock Text="WORKFLOW" Style="{StaticResource SectionHeader}"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </Grid>
+              </Border>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
                          Text="Pick (V): select/move/resize; rotate with the Rotation slider or the ↺ ↻ buttons. Slice (M): drag regions, click activates; Delete cuts; Space toggles markers; arrows nudge. Ctrl+F fill/text/canvas color, Ctrl+Z/Y undo/redo."/>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17" Margin="0,8,0,0"
@@ -2324,12 +2463,18 @@
         </StackPanel>
 
           <StackPanel x:Name="PhotoPanel" Visibility="Collapsed">
-            <TextBlock Text="PHOTO" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
+            <Border Style="{StaticResource TopBand}">
+              <Grid>
+                <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                <TextBlock Text="PHOTO" Style="{StaticResource SectionHeader}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+              </Grid>
+            </Border>
             <TextBlock x:Name="PhotoEmptyText" Text="Select an image on the canvas to edit it."
                        TextWrapping="Wrap" FontSize="10.5" Foreground="{StaticResource MutedBrush}"
                        Margin="2,4,2,0" Visibility="Collapsed"/>
             <StackPanel x:Name="PhotoContent">
-              <Border Background="#111A27" CornerRadius="5" Padding="8">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="8">
                 <StackPanel>
                   <Border Height="64" Background="#04070D" CornerRadius="3" ClipToBounds="True">
                     <Viewbox Stretch="Fill">
@@ -2345,9 +2490,15 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
                 <StackPanel>
-                  <TextBlock Text="EDIT" Style="{StaticResource SectionHeader}"/>
+                  <Border Style="{StaticResource SectionBand}">
+                    <Grid>
+                      <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                      <TextBlock Text="EDIT" Style="{StaticResource SectionHeader}"
+                                 HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                    </Grid>
+                  </Border>
                   <UniformGrid Columns="4">
                     <Button Content="Auto" Style="{StaticResource AttrBtn}" Background="#0B121B"
                             BorderBrush="#223248" BorderThickness="1" Click="PhotoQuickAuto_Click"/>
@@ -2361,11 +2512,11 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0">
                 <StackPanel>
                   <ToggleButton x:Name="PhotoPresetsToggle" Style="{StaticResource ExtraHeader}"
                                 Content="PRESETS" IsChecked="True" Click="PhotoSection_Click" Tag="Presets"/>
-                  <StackPanel x:Name="PhotoPresetsContent" Margin="0,8,0,0">
+                  <StackPanel x:Name="PhotoPresetsContent" Margin="0,8,0,11">
                     <ItemsControl x:Name="PhotoPresetList">
                       <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -2391,11 +2542,11 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,4,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0">
                 <StackPanel>
                   <ToggleButton x:Name="PhotoLightToggle" Style="{StaticResource ExtraHeader}"
                                 Content="LIGHT" IsChecked="True" Click="PhotoSection_Click" Tag="Light"/>
-                  <StackPanel x:Name="PhotoLightContent" Margin="0,9,0,0">
+                  <StackPanel x:Name="PhotoLightContent" Margin="0,9,0,11">
                     <controls:ValueSlider Inline="True" Caption="Exposure" x:Name="PhotoExposure" Tag="Exposure"
                                           Decimals="2" Step="0.05" Suffix="EV" Minimum="-5" Maximum="5"
                                           Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
@@ -2418,11 +2569,11 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0">
                 <StackPanel>
                   <ToggleButton x:Name="PhotoColorToggle" Style="{StaticResource ExtraHeader}"
                                 Content="COLOR" Click="PhotoSection_Click" Tag="Color"/>
-                  <StackPanel x:Name="PhotoColorContent" Margin="0,9,0,0" Visibility="Collapsed">
+                  <StackPanel x:Name="PhotoColorContent" Margin="0,9,0,11" Visibility="Collapsed">
                     <controls:ValueSlider Inline="True" Caption="Temperature" x:Name="PhotoTemperature" Tag="Temperature"
                                           Decimals="0" Suffix="%" Minimum="-100" Maximum="100"
                                           TrackBrush="{StaticResource PhotoTemperatureTrack}"
@@ -2441,11 +2592,11 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0">
                 <StackPanel>
                   <ToggleButton x:Name="PhotoToneToggle" Style="{StaticResource ExtraHeader}"
                                 Content="TONE" Click="PhotoSection_Click" Tag="Tone"/>
-                  <StackPanel x:Name="PhotoToneContent" Margin="0,9,0,0" Visibility="Collapsed">
+                  <StackPanel x:Name="PhotoToneContent" Margin="0,9,0,11" Visibility="Collapsed">
                     <Grid Margin="0,0,0,6">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="8"/><ColumnDefinition/>
@@ -2464,11 +2615,11 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11,11,11,0">
                 <StackPanel>
                   <ToggleButton x:Name="PhotoEffectsToggle" Style="{StaticResource ExtraHeader}"
                                 Content="EFFECTS" Click="PhotoSection_Click" Tag="Effects"/>
-                  <StackPanel x:Name="PhotoEffectsContent" Margin="0,9,0,0" Visibility="Collapsed">
+                  <StackPanel x:Name="PhotoEffectsContent" Margin="0,9,0,11" Visibility="Collapsed">
                     <controls:ValueSlider Inline="True" Caption="Blur" x:Name="PhotoBlur" Tag="Blur"
                                           Decimals="0" Suffix="%" Minimum="0" Maximum="100"
                                           Margin="0,0,0,7" ValueChanged="PhotoAdjust_ValueChanged"/>
@@ -2491,7 +2642,7 @@
                 </StackPanel>
               </Border>
 
-              <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+              <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
                 <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
                            Text="Photo edits are non-destructive: the original pixels stay intact, presets can be changed or reset at any time, and exports use the adjusted result."/>
               </Border>
@@ -2499,8 +2650,14 @@
           </StackPanel>
 
           <StackPanel x:Name="GridPanel" Visibility="Collapsed">
-            <TextBlock Text="CANVAS" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
-            <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,0,0,8">
+            <Border Style="{StaticResource TopBand}">
+              <Grid>
+                <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                <TextBlock Text="CANVAS" Style="{StaticResource SectionHeader}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+              </Grid>
+            </Border>
+            <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
               <StackPanel>
                 <Grid Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
@@ -2517,8 +2674,14 @@
                           Checked="CanvasTransparent_Toggled" Unchecked="CanvasTransparent_Toggled"/>
               </StackPanel>
             </Border>
-            <TextBlock Text="GRID" Style="{StaticResource SectionHeader}" Margin="2,0,2,8"/>
-            <Border Background="#111A27" CornerRadius="5" Padding="11">
+            <Border Style="{StaticResource TopBand}">
+              <Grid>
+                <Border Width="2" HorizontalAlignment="Left" Background="#2E9BFF"/>
+                <TextBlock Text="GRID" Style="{StaticResource SectionHeader}"
+                           HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"/>
+              </Grid>
+            </Border>
+            <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
               <StackPanel>
                 <CheckBox x:Name="GridShowCheck" Style="{StaticResource DarkSwitch}"
                           Content="Show grid" Checked="GridShow_Toggled" Unchecked="GridShow_Toggled"/>
@@ -2539,29 +2702,23 @@
                                       ValueChanged="GridOpacity_ValueChanged"/>
               </StackPanel>
             </Border>
-            <Border Background="#111A27" CornerRadius="5" Padding="11" Margin="0,8,0,0">
+            <Border Background="Transparent" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="11">
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
                          Text="Grid settings are visual only. Shift-drag snaps objects to the visible column lines."/>
             </Border>
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
+      <Thumb x:Name="InspectorSplitter" Width="9" HorizontalAlignment="Left" Cursor="SizeWE"
+             DragDelta="InspectorSplitter_DragDelta">
+        <Thumb.Template>
+          <ControlTemplate TargetType="Thumb">
+            <Border x:Name="Bd" Background="Transparent" BorderBrush="#1A2636" BorderThickness="1,0,0,0"/>
+          </ControlTemplate>
+        </Thumb.Template>
+      </Thumb>
+      </Grid>
     </Border>
-
-    <!-- drag this edge to widen / narrow the inspector -->
-    <Thumb x:Name="InspectorSplitter" DockPanel.Dock="Right" Width="5" Cursor="SizeWE"
-           DragDelta="InspectorSplitter_DragDelta">
-      <Thumb.Template>
-        <ControlTemplate TargetType="Thumb">
-          <Border x:Name="Bd" Background="Transparent" BorderBrush="#1A2636" BorderThickness="1,0,0,0"/>
-          <ControlTemplate.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Thumb.Template>
-    </Thumb>
 
     <!-- ================= VIEWPORT ================= -->
     <Grid>
@@ -2608,6 +2765,19 @@
                       Stroke="{StaticResource IconBrush}" StrokeThickness="1.7"
                       Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
               </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem x:Name="ReplaceBackgroundMenuItem" Header="Replace background with image"
+                      Visibility="Collapsed">
+              <MenuItem.Icon>
+                <Path Data="M3,5 H21 V19 H3 Z M6,15 L10,11 L13,14 L16,10 L21,16"
+                      Stroke="{StaticResource IconBrush}" StrokeThickness="1.6"
+                      Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+              </MenuItem.Icon>
+              <MenuItem x:Name="BackgroundFromProjectMenuItem" Header="From project..."/>
+              <MenuItem Header="From computer..." Click="ReplaceBackgroundFromFile_Click"/>
+              <Separator/>
+              <MenuItem x:Name="RemoveBackgroundImageMenuItem" Header="Remove image"
+                        Click="RemoveBackgroundImage_Click"/>
             </MenuItem>
             <MenuItem x:Name="ProjectSettingsMenuItem" Header="Project settings…" Click="ProjectSettings_Click">
               <MenuItem.Icon>
@@ -2719,6 +2889,15 @@
       </Canvas>
       </Canvas>
     </ScrollViewer>
+
+      <Canvas x:Name="InteractionOverlay" IsHitTestVisible="False">
+        <Border x:Name="DrawSizeTip" Visibility="Collapsed"
+                Background="#EE0B121B" BorderBrush="#2E9BFF" BorderThickness="1"
+                CornerRadius="4" Padding="7,3">
+          <TextBlock x:Name="DrawSizeTipText" FontSize="11" FontFamily="Consolas"
+                     Foreground="#E6EEF6"/>
+        </Border>
+      </Canvas>
 
       <Border x:Name="EmptyState" Visibility="Collapsed" Background="#E6080A11"
               AllowDrop="True" DragOver="EmptyState_DragOver" Drop="EmptyState_Drop">

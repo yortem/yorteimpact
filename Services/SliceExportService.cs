@@ -268,19 +268,35 @@ public static class SliceExportService
     /// </summary>
     public static BitmapSource RenderRegion(FrameworkElement elementHost, Rect region, System.Windows.Media.Color? background, double zoom = 1, double dpi = 96)
     {
-        var elements = CropRegion(elementHost, region, zoom, dpi);
-        if (background is not { } bg) return elements;
+        if (region.Width < 1 || region.Height < 1)
+            throw new ArgumentException("Slice region is empty.", nameof(region));
+        if (zoom <= 0) zoom = 1;
+
+        double pxPerDip = zoom * dpi / 96.0;
+        int outW = Math.Max(1, (int)Math.Round(region.Width * pxPerDip));
+        int outH = Math.Max(1, (int)Math.Round(region.Height * pxPerDip));
+        double dipW = outW * 96.0 / dpi;
+        double dipH = outH * 96.0 / dpi;
+
+        // Draw exactly the requested region instead of rendering the whole
+        // pasteboard and cropping it. Floor/ceil cropping a fractional
+        // artboard origin used to include a half-pixel strip above/left of
+        // the canvas, which showed up as a white line in some WebP viewers.
+        var brush = new VisualBrush(elementHost)
+        {
+            ViewboxUnits = BrushMappingMode.Absolute,
+            Viewbox = region,
+            Stretch = Stretch.Fill,
+        };
 
         var dv = new DrawingVisual();
         using (var dc = dv.RenderOpen())
         {
-            dc.DrawRectangle(new SolidColorBrush(bg), null,
-                new Rect(0, 0, elements.PixelWidth, elements.PixelHeight));
-            dc.DrawImage(elements, new Rect(0, 0, elements.PixelWidth, elements.PixelHeight));
+            if (background is { } bg)
+                dc.DrawRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, dipW, dipH));
+            dc.DrawRectangle(brush, null, new Rect(0, 0, dipW, dipH));
         }
-        var rtb = new RenderTargetBitmap(
-            Math.Max(1, elements.PixelWidth), Math.Max(1, elements.PixelHeight),
-            dpi, dpi, PixelFormats.Pbgra32);
+        var rtb = new RenderTargetBitmap(outW, outH, dpi, dpi, PixelFormats.Pbgra32);
         rtb.Render(dv);
         if (rtb.CanFreeze) rtb.Freeze();
         return rtb;

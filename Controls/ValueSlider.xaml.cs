@@ -30,6 +30,13 @@ public partial class ValueSlider : UserControl
         Box.KeyDown += OnBoxKeyDown;
         Box.PreviewMouseLeftButtonUp += Box_MouseUp;
         Box.LostFocus += (_, _) => CommitBoxText();
+        PreviewKeyDown += OnValueKeyDown;
+        Slider.PreviewKeyDown += OnValueKeyDown;
+        PreviewMouseLeftButtonDown += (_, _) =>
+        {
+            if (_inline) InlineSlider.Focus();
+            else Box.Focus();
+        };
         UpBtn.Click += (_, _) => Nudge(+Step);
         DownBtn.Click += (_, _) => Nudge(-Step);
         SliderPopup.Opened += (_, _) =>
@@ -227,7 +234,15 @@ public partial class ValueSlider : UserControl
         else if (e.Key == Key.Enter) { CommitBoxText(); e.Handled = true; }
     }
 
-    private void Nudge(double delta) => SetValue(_value + delta, raise: true);
+    /// <summary>Up/Down changes the value from any part of the control (field, arrows or slider).</summary>
+    private void OnValueKeyDown(object sender, KeyEventArgs e)
+    {
+        double step = Step > 0 ? Step : 1;
+        if (e.Key == Key.Up) { Nudge(+step); e.Handled = true; }
+        else if (e.Key == Key.Down) { Nudge(-step); e.Handled = true; }
+    }
+
+    private void Nudge(double delta) => SetValue(_value + delta, raise: true, forceBox: true);
 
     /// <summary>Clicking the number field opens the fine-tune slider; the field keeps focus for typing.</summary>
     private void Box_MouseUp(object sender, MouseButtonEventArgs e)

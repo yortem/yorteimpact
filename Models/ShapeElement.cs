@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace YorteImpact.Models;
 
@@ -41,6 +42,7 @@ public class ShapeElement : DesignElement
     private double _gradientAngle = 135;
     private Color _strokeColor = Color.FromRgb(0x1E, 0x3A, 0x8A);
     private double _strokeThickness = 2;
+    private ImageSource? _fillImage;
 
     private Brush _fillBrush = Brushes.CornflowerBlue;
     private Brush _borderBrush = Brushes.Navy;
@@ -147,6 +149,13 @@ public class ShapeElement : DesignElement
         set { if (Set(ref _strokeThickness, Math.Max(0, value))) RebuildBrushes(); }
     }
 
+    /// <summary>Optional raster fill; overrides the solid/gradient fill.</summary>
+    public ImageSource? FillImage
+    {
+        get => _fillImage;
+        set { if (Set(ref _fillImage, value)) RebuildBrushes(); }
+    }
+
     public Brush FillBrush
     {
         get => _fillBrush;
@@ -222,10 +231,26 @@ public class ShapeElement : DesignElement
 
     private void RebuildBrushes()
     {
-        FillBrush = IsGradient ? BuildGradient() : new SolidColorBrush(FillColor1);
+        if (_fillImage is { } image)
+        {
+            var imageBrush = new ImageBrush(image)
+            {
+                Stretch = Stretch.UniformToFill,
+                AlignmentX = AlignmentX.Center,
+                AlignmentY = AlignmentY.Center,
+            };
+            if (imageBrush.CanFreeze && image is not WriteableBitmap)
+                imageBrush.Freeze();
+            FillBrush = imageBrush;
+        }
+        else
+        {
+            FillBrush = IsGradient ? BuildGradient() : new SolidColorBrush(FillColor1);
+            if (FillBrush.CanFreeze) FillBrush.Freeze();
+        }
+
         BorderBrush = new SolidColorBrush(StrokeColor);
-        foreach (var b in new[] { FillBrush, BorderBrush })
-            if (b.CanFreeze) b.Freeze(); // perf: frozen brushes render faster
+        if (BorderBrush.CanFreeze) BorderBrush.Freeze(); // perf: frozen brushes render faster
     }
 
     private Brush BuildGradient()
@@ -321,6 +346,7 @@ public class ShapeElement : DesignElement
         shape.StrokeColor = StrokeColor;
         shape.StrokeThickness = StrokeThickness;
         shape.CornerRadius = CornerRadius;
+        shape.FillImage = FillImage;
     }
 
     public override DesignElement Clone()
@@ -346,6 +372,7 @@ public class ShapeElement : DesignElement
             FillColor1 = FillColor1, FillColor2 = FillColor2,
             IsGradient = IsGradient, GradientType = GradientType, GradientAngle = GradientAngle,
             StrokeColor = StrokeColor, StrokeThickness = StrokeThickness,
+            FillImage = FillImage,
         };
         c.SetPolygonPoints(_polygonPoints);
         return c;

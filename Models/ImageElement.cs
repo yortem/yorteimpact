@@ -153,18 +153,16 @@ public class ImageElement : DesignElement
     }
 
     /// <summary>
-    /// Assign a BitmapSource and auto-size the element to the pixel size
-    /// (clamped to a sane max) unless keepSize is true.
+    /// Assign a BitmapSource and auto-size the element to its pixel size
+    /// (one canvas unit per image pixel) unless keepSize is true.
     /// </summary>
     public void SetBitmap(BitmapSource bmp, bool keepSize = false)
     {
         Source = bmp;
         if (!keepSize && bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
         {
-            const double max = 640;
-            double scale = Math.Min(1.0, Math.Min(max / bmp.PixelWidth, max / bmp.PixelHeight));
-            Width = Math.Max(1, bmp.PixelWidth * scale);
-            Height = Math.Max(1, bmp.PixelHeight * scale);
+            Width = bmp.PixelWidth;
+            Height = bmp.PixelHeight;
         }
     }
 

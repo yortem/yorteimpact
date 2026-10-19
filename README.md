@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="cover.webp" alt="YorteImpact" width="100%"/>
+  <img src="screenshot-yorteimpact.webp" alt="YorteImpact" width="100%"/>
 </p>
 
 # YorteImpact
@@ -56,7 +56,9 @@ save, discard or cancel. Closing the window asks the same for every unsaved
 tab. Each tab keeps its own undo
 history, slices, zoom and scroll position. The active tab also shows the canvas
 size and current zoom in the same large, high-contrast style as the tab title.
-`Ctrl+D` duplicates the current project into a new tab.
+Each tab shows a small color badge built from the project's dominant artwork
+color (or a stable color from its name when the canvas is empty) with the
+project's initial. `Ctrl+D` duplicates the current project into a new tab.
 
 Closing the last tab leaves the editor open on an empty state with **New
 project** and **Open project** buttons. You can also paste an image (`Ctrl+V`)
@@ -124,7 +126,10 @@ Shows the active tool's options:
 
 ### Inspector
 
-The right panel is made of cards and is resizable by dragging its inner edge:
+The right panel uses full-width sections: each section has a left-aligned title
+bar in its own color, a clear 1px separator and a content block that reaches the
+panel edges without outer gaps. The panel is resizable by dragging its inner
+edge:
 
 - **Geometry** — X/Y and W/H on two compact rows, then Corner.
 - **Rotation** — rotation slider and the 90° left/right buttons.
@@ -177,7 +182,8 @@ Photo settings are saved in `.yimpact` and are part of undo/redo.
 Draw with the **Path drawing** tool. Pick **Rectangle**, **Ellipse**,
 **Triangle** or **Polygon** in the top bar:
 
-- Rectangle, ellipse and triangle: drag a box on the canvas.
+- Rectangle, ellipse and triangle: drag a box on the canvas. A small tip next to
+  the cursor shows the live width and height in pixels.
 - Polygon: click each corner, then press `Enter` or double-click to close it;
   `Esc` cancels, `Backspace` removes the last point.
 - Use the lock next to the shape buttons (or hold `Shift` while dragging) to
@@ -191,6 +197,9 @@ Shapes support:
 - Corner radius (rectangles).
 - Rotation, flip, opacity.
 - Shadows, soft edge and directional transparency.
+- Right-click a shape and choose **Replace background with image** to fill it
+  with an image from the project or from the computer. **Remove image** returns
+  to the color/gradient fill.
 
 The drawing preview shows the final fill, border and shape before you release
 the mouse. New shapes reuse the last-used fill, border, radius, opacity and
@@ -199,11 +208,12 @@ shadow settings, including after restarting the app.
 ### Images
 
 Paste an image from the clipboard (`Ctrl+V`) into the current project, or drag
-image files onto the canvas to add them as objects. Drop images on the tab bar
-(or the empty-state screen) to open each in a new project whose canvas is
-exactly the image's pixel size, with the image filling it. Images support
-rounded corners, rotation, shadows and the same transparency/soft-edge controls
-as shapes.
+image files onto the canvas to add them as objects. Pasted and dropped images
+keep their original pixel size and land inside the canvas (larger images are
+centered on it). Drop images on the tab bar (or the empty-state screen) to open
+each in a new project whose canvas is exactly the image's pixel size, with the
+image filling it. Images support rounded corners, rotation, shadows and the
+same transparency/soft-edge controls as shapes.
 
 The **Image** card sets how resizing affects the raster: **Crop** fills the box
 and hides the overflow, **Fit** shows the whole image with empty space around
@@ -381,17 +391,25 @@ Leaving the Slice tool hides and resets the markers.
 ## Colors
 
 - The in-app **Color Picker** has a saturation/value field, hue strip, hex and
-  RGB entry, a compact pastel swatch row and colors already used on the canvas.
+  RGB entry, a compact row of strong modern colors and colors already used on
+  the canvas.
+- The **Main color** swatch and the screen eyedropper sit under the tools in
+  the left rail; the swatch opens the picker. The main color is listed first
+  under **Used on this canvas**. That list contains colors you applied to
+  shapes, text, strokes and the background, not pixels inside images.
 - **FROM IMAGE** reads a palette from a picture: press **Paste image**
-  (`Ctrl+V`) or drop an image file on the picker. It shows the most frequent
-  distinct colors; click any swatch to load it.
+  (`Ctrl+V`) or drop an image file on the picker. It shows up to 10 distinct
+  colors (near-identical shades are merged); click any swatch to load it.
 - **Pick from screen** inside the Color Picker samples an exact pixel anywhere
-  on screen, including shape gradients and image pixels.
+  on screen, including shape gradients and image pixels. A magnifier next to
+  the crosshair shows the pixel grid around the cursor with the sampled pixel
+  outlined, so the exact point stays visible.
 - Color changes are **previewed live on the canvas** while the picker is open.
   **OK** keeps the preview, **Cancel** restores the previous color. The whole
   picker session is one undo step.
-- `Ctrl+F` opens the picker for the selected shape/text color; when nothing
-  editable is selected it opens the canvas background picker instead.
+- `Ctrl+F` opens the picker for the selected shape/text color. On an image it
+  recolors the image while keeping its transparency (Photo `Reset` clears it).
+  When nothing editable is selected it opens the canvas background picker.
 - The **Background remover** erases a connected color (magic wand) or the
   background connected to an image border.
 
@@ -435,9 +453,10 @@ which opens a new project.
 ### Image export
 
 Flat PNG, GIF or WebP at the canvas resolution. Saving ignores the current
-zoom and always uses 1:1 canvas pixels. Transparent canvases export with alpha.
-Photo adjustments and effects are baked into the exported pixels; the original
-embedded image is not changed.
+zoom and always uses 1:1 canvas pixels, starting exactly at the canvas edge (no
+extra border pixel). Transparent canvases export with alpha. Photo adjustments
+and effects are baked into the exported pixels; the original embedded image is
+not changed.
 
 ### Copy for AI
 
@@ -453,6 +472,7 @@ the exact visual reference.
 |---|---|
 | `V` / `M` / `B` / `E` / `R` / `T` | Pick / Slice / Paintbrush / Background remover / Path drawing / Text |
 | `[` / `]` | Decrease / increase paintbrush size |
+| `Up` / `Down` | Change the clicked numeric field, stepper or slider value |
 | `Alt+click` | Sample a paintbrush color from the canvas or image |
 | `Ctrl+N` | New canvas (opens a new tab) |
 | `Ctrl+T` | New blank canvas tab |
@@ -467,7 +487,7 @@ the exact visual reference.
 | `Alt+drag` / `Ctrl+drag` | Duplicate the selected object/group and drag the copy |
 | `Ctrl+Shift+drag` | Duplicate and snap the copy to the visible grid |
 | `Shift+drag` | Snap while moving |
-| `Ctrl+F` | Pick the selected shape/text color, or the canvas color when nothing editable is selected |
+| `Ctrl+F` | Pick the selected shape/text color, recolor a selected image, or the canvas color when nothing editable is selected |
 | `Ctrl+R` | Fit canvas to selection or active slice |
 | `Ctrl+0` | Zoom to 100% |
 | `+` / `-` | Zoom step |
