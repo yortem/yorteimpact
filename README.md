@@ -12,6 +12,8 @@ WPF on .NET 8.
 - Vector shapes (rectangle, ellipse, triangle and custom polygon) with solid or
   gradient fills, borders, corner radius, shadows, soft edges and directional
   transparency.
+- Editable vector lines and arrows with freehand curves, endpoint markers,
+  solid/dashed/dotted strokes and shadows.
 - Editable text with RTL support, font search, wrapping, spacing and shadows.
 - Raster paintbrush for freehand painting, photo retouching (smudge/blur),
   watercolor, erasing and blending an image into the background behind it.
@@ -101,6 +103,7 @@ Tools only, with thin group dividers:
 | Slice | `M` | Draw export/copy/crop regions |
 | Paintbrush | `B` | Paint, smudge/blur, watercolor, erase or merge into the background |
 | Background remover | `E` | Erase a connected color / auto background |
+| Line and Arrow | `L` | Draw straight lines, point-by-point polylines and smoothed freehand strokes |
 | Path drawing | `R` | Draw shapes; Polygon uses click-to-connect |
 | Text | `T` | Type text in place |
 
@@ -120,6 +123,10 @@ Shows the active tool's options:
 - **Text** — color, font, size, B/I/U/S, letter spacing, alignment, text
   border and drop shadow. With no text selected these set the next text's
   style.
+- **Line and Arrow** — straight-line, polyline or freehand mode; stroke color
+  and width; solid, dashed or dotted style; independent start/end markers
+  (none, open arrowhead, filled triangular arrowhead, visible round dot or
+  perpendicular end bar); freehand curve strength and drop shadow.
 - **Path drawing** — shape type (rectangle, ellipse, triangle, polygon), a
   drawing ratio lock (keeps new shapes square/circular), fill color and
   solid/gradient mode, corner radius for rectangles, border and shadow for the
@@ -206,6 +213,18 @@ Shapes support:
 The drawing preview shows the final fill, border and shape before you release
 the mouse. New shapes reuse the last-used fill, border, radius, opacity and
 shadow settings, including after restarting the app.
+
+### Lines and arrows
+
+Choose **Line**, **Polyline** or **Freehand** in the Line and Arrow tool's top
+bar. Drag to draw a straight line; click to add polyline corners, then
+double-click or press Enter to finish (Esc cancels); drag to draw freehand.
+The **Curve** slider controls freehand smoothing. Set color, width, line pattern,
+the start and end markers, and shadow before drawing. Each endpoint can use no
+marker, an open arrowhead, a filled triangular arrowhead, a visible round dot or
+a perpendicular end bar. These settings work with all three drawing modes.
+Line settings are remembered between sessions, and lines remain editable vector
+objects in saved projects and exports.
 
 ### Images
 
@@ -414,9 +433,10 @@ Leaving the Slice tool hides and resets the markers.
 - Color changes are **previewed live on the canvas** while the picker is open.
   **OK** keeps the preview, **Cancel** restores the previous color. The whole
   picker session is one undo step.
-- `Ctrl+F` opens the picker for the selected shape/text color. On an image it
-  recolors the image while keeping its transparency (Photo `Reset` clears it).
-  When nothing editable is selected it opens the canvas background picker.
+- `Ctrl+F` changes the selected shape, line or text color; a selected image is
+  recolored while keeping its transparency, and a group recolors its shapes.
+  With no selection it changes the active tool's primary color (shape fill, line
+  stroke, text color or brush color); other tools open the canvas background picker.
 - The **Background remover** erases a connected color (magic wand) or the
   background connected to an image border.
 
@@ -477,7 +497,7 @@ the exact visual reference.
 
 | Shortcut | Action |
 |---|---|
-| `V` / `M` / `B` / `E` / `R` / `T` | Pick / Slice / Paintbrush / Background remover / Path drawing / Text |
+| `V` / `M` / `B` / `E` / `L` / `R` / `T` | Pick / Slice / Paintbrush / Background remover / Line and Arrow / Path drawing / Text |
 | `[` / `]` | Decrease / increase paintbrush size |
 | `Up` / `Down` | Change the clicked numeric field, stepper or slider value |
 | `Alt+click` | Sample a paintbrush color from the canvas or image |
@@ -494,7 +514,7 @@ the exact visual reference.
 | `Alt+drag` / `Ctrl+drag` | Duplicate the selected object/group and drag the copy |
 | `Ctrl+Shift+drag` | Duplicate and snap the copy to the visible grid |
 | `Shift+drag` | Snap while moving |
-| `Ctrl+F` | Pick the selected shape/text color, recolor a selected image, or the canvas color when nothing editable is selected |
+| `Ctrl+F` | Change the selected object's color or the active tool's primary color; otherwise change the canvas color |
 | `Ctrl+R` | Fit canvas to selection or active slice |
 | `Ctrl+0` | Zoom to 100% |
 | `+` / `-` | Zoom step |
@@ -502,7 +522,7 @@ the exact visual reference.
 | `Delete` / `Backspace` | Delete (cuts the slice when one is active) |
 | `Space` | Show/hide slice markers |
 | Arrow keys | Nudge 1px (Shift = 10px) |
-| `Esc` | Finish text / clear slice / return to Pick |
+| `Esc` | Cancel a line or polygon draft / finish text / clear slice / return to Pick |
 | `Ctrl+,` | Settings |
 
 ## Notes

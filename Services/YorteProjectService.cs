@@ -44,7 +44,7 @@ public static class YorteProjectService
     public sealed class ElementDto
     {
         public string? Id { get; set; } // stable across undo snapshots (not just files)
-        public string Kind { get; set; } = "shape"; // "shape" | "image" | "text" | "paint" | "group"
+        public string Kind { get; set; } = "shape"; // "shape" | "line" | "image" | "text" | "paint" | "group"
         public List<ElementDto>? Children { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
@@ -80,6 +80,13 @@ public static class YorteProjectService
         public double StrokeThickness { get; set; }
         public string? ShapeKind { get; set; }
         public List<PolygonPointDto>? PolygonPoints { get; set; }
+        public string? LinePattern { get; set; }
+        public string? LineStartCap { get; set; }
+        public string? LineEndCap { get; set; }
+        public bool LineFreehand { get; set; }
+        public bool LinePolyline { get; set; }
+        public double LineCurveStrength { get; set; } = 50;
+        public List<PolygonPointDto>? LinePoints { get; set; }
         public string? FillImageBase64 { get; set; }
         // text only
         public string? Text { get; set; }
@@ -200,6 +207,20 @@ public static class YorteProjectService
                         .Select(p => new PolygonPointDto { X = p.X, Y = p.Y })
                         .ToList();
                 break;
+            case LineElement line:
+                dto.Kind = "line";
+                dto.Stroke = ToHex(line.StrokeColor);
+                dto.StrokeThickness = line.StrokeThickness;
+                dto.LinePattern = line.Pattern.ToString();
+                dto.LineStartCap = line.StartCap.ToString();
+                dto.LineEndCap = line.EndCap.ToString();
+                dto.LineFreehand = line.IsFreehand;
+                dto.LinePolyline = line.IsPolyline;
+                dto.LineCurveStrength = line.CurveStrength;
+                dto.LinePoints = line.PathPoints
+                    .Select(p => new PolygonPointDto { X = p.X, Y = p.Y })
+                    .ToList();
+                break;
             case ImageElement im:
                 dto.Kind = "image";
                 dto.CornerRadius = im.CornerRadius;
@@ -276,6 +297,7 @@ public static class YorteProjectService
                     StrokeColor = FromHex(dto.Stroke, Colors.Navy),
                     StrokeThickness = dto.StrokeThickness,
                 },
+                "line" => LoadLine(dto),
                 "image" => LoadImage(dto),
                 "paint" => LoadPaintLayer(dto),
                 "text" => new TextElement
@@ -359,6 +381,24 @@ public static class YorteProjectService
         return bmp == null ? null : new PaintLayerElement { Source = bmp };
     }
 
+    private static LineElement? LoadLine(ElementDto dto)
+    {
+        if (dto.LinePoints is not { Count: >= 2 }) return null;
+        var line = new LineElement
+        {
+            StrokeColor = FromHex(dto.Stroke, Colors.Black),
+            StrokeThickness = dto.StrokeThickness > 0 ? dto.StrokeThickness : 4,
+            Pattern = ParseLinePattern(dto.LinePattern),
+            StartCap = ParseLineCap(dto.LineStartCap),
+            EndCap = ParseLineCap(dto.LineEndCap),
+            IsFreehand = dto.LineFreehand,
+            IsPolyline = dto.LinePolyline,
+            CurveStrength = dto.LineCurveStrength,
+        };
+        line.SetPathPoints(dto.LinePoints.Select(p => new Point(p.X, p.Y)));
+        return line;
+    }
+
     private static GroupElement? LoadGroup(ElementDto dto)
     {
         if (dto.Children is null) return null;
@@ -378,6 +418,7 @@ public static class YorteProjectService
                     StrokeColor = FromHex(childDto.Stroke, Colors.Navy),
                     StrokeThickness = childDto.StrokeThickness,
                 },
+                "line" => LoadLine(childDto),
                 "image" => LoadImage(childDto),
                 "paint" => LoadPaintLayer(childDto),
                 "text" => new TextElement
@@ -405,6 +446,31 @@ public static class YorteProjectService
                 "group" => LoadGroup(childDto),
                 _ => null,
             };
+            if (child is LineElement line)
+            {
+                if (Guid.TryParse(childDto.Id, out var id)) line.Id = id;
+                line.X = childDto.X;
+                line.Y = childDto.Y;
+                line.Width = Math.Max(1, childDto.Width);
+                line.Height = Math.Max(1, childDto.Height);
+                line.RotationAngle = childDto.Rotation;
+                line.FlipHorizontal = childDto.FlipH;
+                line.FlipVertical = childDto.FlipV;
+                line.ZIndex = childDto.Z;
+                line.Opacity = childDto.Opacity;
+                line.SoftEdge = childDto.SoftEdge;
+                line.ShadowStyle = ParseShadowStyle(childDto.ShadowStyle);
+                line.ShadowX = childDto.ShadowX;
+                line.ShadowY = childDto.ShadowY;
+                line.ShadowBlur = childDto.ShadowBlur;
+                line.ShadowOpacity = childDto.ShadowOpacity;
+                line.ShadowColor = FromHex(childDto.ShadowColor, Colors.Black);
+                line.UseOpacityGradient = childDto.OpacityGradient;
+                line.OpacityDirection = ParseOpacityDirection(childDto.OpacityDirection);
+                line.OpacityStart = childDto.OpacityStart;
+                line.OpacityEnd = childDto.OpacityGradient && childDto.OpacityEnd <= 0 ? 100 : childDto.OpacityEnd;
+                line.OpacityStrength = childDto.OpacityGradient && childDto.OpacityStrength <= 0 ? 100 : childDto.OpacityStrength;
+            }
             if (child != null) group.Children.Add(child);
         }
         if (group.Children.Count == 0) return null;
@@ -494,6 +560,16 @@ public static class YorteProjectService
 
     private static ShapeKind ParseShapeKind(string? value) =>
         Enum.TryParse<ShapeKind>(value, ignoreCase: true, out var k) ? k : ShapeKind.Rectangle;
+
+    private static LinePattern ParseLinePattern(string? value) =>
+        Enum.TryParse<LinePattern>(value, ignoreCase: true, out var p) ? p : LinePattern.Solid;
+
+    private static LineEndpointStyle ParseLineCap(string? value) =>
+        string.Equals(value, "Triangle", StringComparison.OrdinalIgnoreCase)
+            ? LineEndpointStyle.OpenArrow
+            : Enum.TryParse<LineEndpointStyle>(value, ignoreCase: true, out var cap)
+                ? cap
+                : LineEndpointStyle.Flat;
 
     private static ShadowStyle ParseShadowStyle(string? value) =>
         Enum.TryParse<ShadowStyle>(value, ignoreCase: true, out var s) ? s : ShadowStyle.None;

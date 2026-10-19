@@ -24,6 +24,9 @@ public sealed class AppSettings
     /// <summary>Style applied to newly drawn shapes, remembered between sessions.</summary>
     public ShapeDefaults Shape { get; set; } = new();
 
+    /// <summary>Last-used line and arrow settings, remembered between sessions.</summary>
+    public LineDefaults Line { get; set; } = new();
+
     /// <summary>Last-used paintbrush settings, remembered between sessions.</summary>
     public BrushDefaults Brush { get; set; } = new();
 
@@ -97,6 +100,19 @@ public sealed class ShapeDefaults
     public double OpacityStart { get; set; }
     public double OpacityEnd { get; set; } = 100;
     public double OpacityStrength { get; set; } = 100;
+}
+
+public sealed class LineDefaults
+{
+    public string Mode { get; set; } = "Line";
+    public string Color { get; set; } = "#2E9BFF";
+    public double Thickness { get; set; } = 4;
+    public string Pattern { get; set; } = "Solid";
+    public string StartCap { get; set; } = "Flat";
+    public string EndCap { get; set; } = "Flat";
+    public double CurveStrength { get; set; } = 50;
+    public bool Shadow { get; set; }
+    public string ShadowColor { get; set; } = "#000000";
 }
 
 /// <summary>

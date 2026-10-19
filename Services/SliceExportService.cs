@@ -156,6 +156,63 @@ public static class SliceExportService
                 };
                 break;
             }
+            case LineElement line:
+            {
+                var path = new System.Windows.Shapes.Path
+                {
+                    Data = line.PathGeometry,
+                    Fill = Brushes.Transparent,
+                    Stroke = line.StrokeBrush,
+                    StrokeThickness = line.StrokeThickness,
+                    StrokeDashArray = line.DashArray,
+                    StrokeDashCap = PenLineCap.Round,
+                    StrokeStartLineCap = line.StrokeStartLineCap,
+                    StrokeEndLineCap = line.StrokeEndLineCap,
+                    Stretch = Stretch.None,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                };
+                var lineVisuals = new Grid { ClipToBounds = false };
+                lineVisuals.Children.Add(path);
+                lineVisuals.Children.Add(new System.Windows.Shapes.Path
+                {
+                    Data = line.StartMarkerGeometry,
+                    Fill = line.StrokeBrush,
+                    Stroke = line.StrokeBrush,
+                    StrokeThickness = line.StrokeThickness,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Stretch = Stretch.None,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                });
+                lineVisuals.Children.Add(new System.Windows.Shapes.Path
+                {
+                    Data = line.EndMarkerGeometry,
+                    Fill = line.StrokeBrush,
+                    Stroke = line.StrokeBrush,
+                    StrokeThickness = line.StrokeThickness,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Stretch = Stretch.None,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                });
+                border = new Border
+                {
+                    Width = line.Width, Height = line.Height,
+                    Background = Brushes.Transparent,
+                    ClipToBounds = false,
+                    Child = lineVisuals,
+                    Opacity = el.OpacityFactor,
+                    OpacityMask = el.OpacityMaskBrush,
+                    Effect = el.ShadowEffect,
+                    RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+                };
+                break;
+            }
             case ImageElement im:
                 border = new Border
                 {
@@ -191,7 +248,12 @@ public static class SliceExportService
                     Height = group.Height,
                 };
                 foreach (var child in group.Children)
-                    groupCanvas.Children.Add(BuildElementVisual(child, false));
+                {
+                    var childVisual = BuildElementVisual(child, false);
+                    System.Windows.Controls.Canvas.SetLeft(childVisual, child.X);
+                    System.Windows.Controls.Canvas.SetTop(childVisual, child.Y);
+                    groupCanvas.Children.Add(childVisual);
+                }
                 border = new Border
                 {
                     Width = group.Width, Height = group.Height,

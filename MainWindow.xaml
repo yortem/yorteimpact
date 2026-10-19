@@ -76,6 +76,40 @@
       </Border>
     </DataTemplate>
 
+    <DataTemplate DataType="{x:Type models:LineElement}">
+      <Border Width="{Binding Width}" Height="{Binding Height}"
+              Opacity="{Binding OpacityFactor}"
+              OpacityMask="{Binding OpacityMaskBrush}"
+              Effect="{Binding ShadowEffect}"
+              RenderTransformOrigin="0.5,0.5">
+        <Border.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform ScaleX="{Binding FlipScaleX}" ScaleY="{Binding FlipScaleY}"/>
+            <RotateTransform Angle="{Binding RotationAngle}"/>
+          </TransformGroup>
+        </Border.RenderTransform>
+        <Grid ClipToBounds="False">
+          <Path Data="{Binding PathGeometry}"
+                Stroke="{Binding StrokeBrush}"
+                StrokeThickness="{Binding StrokeThickness}"
+                StrokeDashArray="{Binding DashArray}"
+                StrokeDashCap="Round"
+                StrokeStartLineCap="{Binding StrokeStartLineCap}"
+                StrokeEndLineCap="{Binding StrokeEndLineCap}"
+                Fill="Transparent" StrokeLineJoin="Round" Stretch="None"
+                HorizontalAlignment="Left" VerticalAlignment="Top"/>
+          <Path Data="{Binding StartMarkerGeometry}" Fill="{Binding StrokeBrush}"
+                Stroke="{Binding StrokeBrush}" StrokeThickness="{Binding StrokeThickness}"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+          <Path Data="{Binding EndMarkerGeometry}" Fill="{Binding StrokeBrush}"
+                Stroke="{Binding StrokeBrush}" StrokeThickness="{Binding StrokeThickness}"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                Stretch="None" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+        </Grid>
+      </Border>
+    </DataTemplate>
+
     <DataTemplate DataType="{x:Type models:ImageElement}">
       <Border Width="{Binding Width}" Height="{Binding Height}"
               CornerRadius="{Binding CornerRadius}"
@@ -1083,7 +1117,9 @@
   <DockPanel>
     <!-- ================= WINDOW TITLE BAR + PROJECT TABS ================= -->
     <Border DockPanel.Dock="Top" Height="40" Background="#05080E"
-            BorderBrush="#1A2636" BorderThickness="0,0,0,1">
+            BorderBrush="#1A2636" BorderThickness="0,0,0,1"
+            WindowChrome.IsHitTestVisibleInChrome="True"
+            PreviewMouseLeftButtonDown="TitleBar_PreviewMouseLeftButtonDown">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -1091,9 +1127,7 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,10,0"
-                    MouseLeftButtonDown="TitleBarDrag_MouseLeftButtonDown"
-                    WindowChrome.IsHitTestVisibleInChrome="True">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,10,0">
           <TextBlock VerticalAlignment="Center" FontFamily="Segoe UI" FontWeight="Black" FontSize="17"
                      TextOptions.TextFormattingMode="Ideal"
                      TextOptions.TextRenderingMode="Grayscale">
@@ -1106,7 +1140,6 @@
                       VerticalScrollBarVisibility="Disabled" Background="Transparent"
                       AllowDrop="True" DragOver="TabDropArea_DragOver"
                       DragLeave="TabDropArea_DragLeave" Drop="TabDropArea_Drop"
-                      MouseLeftButtonDown="TabDropArea_MouseLeftButtonDown"
                       WindowChrome.IsHitTestVisibleInChrome="True">
           <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
             <StackPanel x:Name="TabStrip" Orientation="Horizontal" VerticalAlignment="Bottom"/>
@@ -1691,6 +1724,136 @@
                       Background="#000000"/>
             </StackPanel>
 
+            <!-- Line and arrow settings -->
+            <StackPanel x:Name="AttrLinePanel" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0" Visibility="Collapsed">
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,6,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrLineModeLineBtn" Style="{StaticResource SegBtn}"
+                                Tag="Line" Click="AttrLineMode_Click" ToolTip="Straight line">
+                    <Path Data="M3,17 L19,7" Stroke="{StaticResource IconBrush}" StrokeThickness="2"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrLineModePolylineBtn" Style="{StaticResource SegBtn}"
+                                Tag="Polyline" Click="AttrLineMode_Click" ToolTip="Click to add points; double-click or Enter to finish">
+                    <Path Data="M3,18 L16,18 L16,6" Stroke="{StaticResource IconBrush}"
+                          StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Round"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrLineModeFreehandBtn" Style="{StaticResource SegBtn}"
+                                Tag="Freehand" Click="AttrLineMode_Click" ToolTip="Freehand line">
+                    <Path Data="M2,15 C5,4 8,19 12,10 S18,4 21,11" Stroke="{StaticResource IconBrush}"
+                          StrokeThickness="2" Fill="Transparent"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+
+              <Button x:Name="AttrLineColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrLineColor_Click" ToolTip="Line color" Margin="0,0,6,0"/>
+              <controls:ValueSlider x:Name="AttrLineThickness" Compact="True" Decimals="1"
+                                    Minimum="1" Maximum="30" Margin="0,0,8,0"
+                                    Caption="Width" ValueChanged="AttrLineThickness_ValueChanged"
+                                    ToolTip="Line thickness"/>
+
+              <Border Style="{StaticResource SegGroup}" Margin="0,0,6,0">
+                <StackPanel Orientation="Horizontal">
+                  <ToggleButton x:Name="AttrLineSolidBtn" Style="{StaticResource SegBtn}"
+                                Tag="Solid" Click="AttrLinePattern_Click" ToolTip="Solid stroke (no dashes)">
+                    <Path Data="M3,11 H21" Stroke="{StaticResource IconBrush}" StrokeThickness="2"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrLineDashedBtn" Style="{StaticResource SegBtn}"
+                                Tag="Dashed" Click="AttrLinePattern_Click" ToolTip="Dashed line">
+                    <Path Data="M3,11 H21" Stroke="{StaticResource IconBrush}" StrokeThickness="2"
+                          StrokeDashArray="3 2"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="AttrLineDottedBtn" Style="{StaticResource SegBtn}"
+                                Tag="Dotted" Click="AttrLinePattern_Click" ToolTip="Dotted line">
+                    <Path Data="M3,11 H21" Stroke="{StaticResource IconBrush}" StrokeThickness="3"
+                          StrokeDashArray="0.1 1.5" StrokeDashCap="Round"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
+
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
+                <TextBlock Text="Start" Style="{StaticResource AttrCaption}" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                <Border Style="{StaticResource SegGroup}">
+                  <StackPanel Orientation="Horizontal">
+                    <ToggleButton x:Name="AttrLineStartFlatBtn" Style="{StaticResource SegBtn}"
+                                  Tag="Start:Flat" Click="AttrLineCap_Click" ToolTip="Start: no arrowhead (plain line end)">
+                      <Path Data="M3,12 H20" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineStartArrowBtn" Style="{StaticResource SegBtn}"
+                                  Tag="Start:OpenArrow" Click="AttrLineCap_Click" ToolTip="Start: open arrowhead">
+                      <Path Data="M7,6 L2,12 L7,18 M2,12 H20" Stroke="{StaticResource IconBrush}"
+                            StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineStartFilledArrowBtn" Style="{StaticResource SegBtn}"
+                                  Tag="Start:FilledTriangle" Click="AttrLineCap_Click" ToolTip="Start: filled triangular arrowhead">
+                      <Path Data="M8,6 L2,12 L8,18 Z M8,12 H21" Stroke="{StaticResource IconBrush}"
+                            StrokeThickness="1.5" Fill="{StaticResource IconBrush}" StrokeLineJoin="Round"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineStartRoundBtn" Style="{StaticResource SegBtn}"
+                                  Tag="Start:Round" Click="AttrLineCap_Click" ToolTip="Start: round">
+                      <Grid Width="24" Height="24">
+                        <Path Data="M6,12 H20" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                        <Ellipse Width="7" Height="7" Margin="2.5,0,0,0" HorizontalAlignment="Left"
+                                 VerticalAlignment="Center" Fill="{StaticResource IconBrush}"/>
+                      </Grid>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineStartSquareBtn" Style="{StaticResource SegBtn}"
+                                  Tag="Start:Square" Click="AttrLineCap_Click" ToolTip="Start: square">
+                      <Path Data="M6,8 V16 M6,12 H20" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                    </ToggleButton>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
+                <TextBlock Text="End" Style="{StaticResource AttrCaption}" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                <Border Style="{StaticResource SegGroup}">
+                  <StackPanel Orientation="Horizontal">
+                    <ToggleButton x:Name="AttrLineEndFlatBtn" Style="{StaticResource SegBtn}"
+                                  Tag="End:Flat" Click="AttrLineCap_Click" ToolTip="End: no arrowhead (plain line end)">
+                      <Path Data="M3,12 H20" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineEndArrowBtn" Style="{StaticResource SegBtn}"
+                                  Tag="End:OpenArrow" Click="AttrLineCap_Click" ToolTip="End: open arrowhead">
+                      <Path Data="M17,6 L22,12 L17,18 M3,12 H22" Stroke="{StaticResource IconBrush}"
+                            StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineEndFilledArrowBtn" Style="{StaticResource SegBtn}"
+                                  Tag="End:FilledTriangle" Click="AttrLineCap_Click" ToolTip="End: filled triangular arrowhead">
+                      <Path Data="M16,6 L22,12 L16,18 Z M3,12 H16" Stroke="{StaticResource IconBrush}"
+                            StrokeThickness="1.5" Fill="{StaticResource IconBrush}" StrokeLineJoin="Round"/>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineEndRoundBtn" Style="{StaticResource SegBtn}"
+                                  Tag="End:Round" Click="AttrLineCap_Click" ToolTip="End: round">
+                      <Grid Width="24" Height="24">
+                        <Path Data="M3,12 H17" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                        <Ellipse Width="7" Height="7" Margin="14,0,0,0" HorizontalAlignment="Left"
+                                 VerticalAlignment="Center" Fill="{StaticResource IconBrush}"/>
+                      </Grid>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttrLineEndSquareBtn" Style="{StaticResource SegBtn}"
+                                  Tag="End:Square" Click="AttrLineCap_Click" ToolTip="End: square">
+                      <Path Data="M3,12 H17 M17,8 V16" Stroke="{StaticResource IconBrush}" StrokeThickness="1.8"/>
+                    </ToggleButton>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+
+              <controls:ValueSlider x:Name="AttrLineCurve" Compact="True" Decimals="0"
+                                    Minimum="0" Maximum="100" Margin="0,0,8,0"
+                                    Caption="Curve" ValueChanged="AttrLineCurve_ValueChanged"
+                                    ToolTip="Smoothness of the freehand curve" Visibility="Collapsed"/>
+
+              <CheckBox x:Name="AttrLineShadowCheck" Style="{StaticResource DarkSwitch}"
+                        Content="Shadow" Margin="0,0,6,0"
+                        Checked="AttrLineShadow_Toggled" Unchecked="AttrLineShadow_Toggled"
+                        ToolTip="Drop shadow"/>
+              <Button x:Name="AttrLineShadowColorBtn" Style="{StaticResource AttrSwatch}"
+                      Click="AttrLineShadowColor_Click" ToolTip="Shadow color"
+                      Background="#000000"/>
+            </StackPanel>
+
             <!-- Rectangle (shape) tool settings -->
             <StackPanel x:Name="AttrRectPanel" Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,12,0" Visibility="Collapsed">
@@ -1873,6 +2036,12 @@
           </ToggleButton>
 
           <Border Style="{StaticResource RailDivider}"/>
+          <ToggleButton x:Name="SideLineBtn" Style="{StaticResource SideTool}"
+                        Click="ToolLine_Click" ToolTip="Line and Arrow Tool — straight line, polyline or freehand stroke">
+            <Path Data="M3,18 L16,5 M12,5 H17 V10" Stroke="{StaticResource IconBrush}"
+                  StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Round"
+                  Width="20" Height="20" Stretch="Uniform"/>
+          </ToggleButton>
           <!-- fa-square : rectangle draw tool -->
           <ToggleButton x:Name="SideRectBtn" Style="{StaticResource SideTool}"
                         Click="ToolRect_Click" ToolTip="Path drawing tool (R) — drag for rectangle/ellipse/triangle, or click points for Polygon">
@@ -2486,7 +2655,7 @@
                 </Grid>
               </Border>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17"
-                         Text="Pick (V): select/move/resize; rotate with the Rotation slider or the ↺ ↻ buttons. Slice (M): drag regions, click activates; Delete cuts; Space toggles markers; arrows nudge. Ctrl+F fill/text/canvas color, Ctrl+Z/Y undo/redo."/>
+                         Text="Pick (V): select/move/resize; rotate with the Rotation slider or the ↺ ↻ buttons. Slice (M): drag regions, click activates; Delete cuts; Space toggles markers; arrows nudge. Ctrl+F changes the selected object's color or the active tool's color, Ctrl+Z/Y undo/redo."/>
               <TextBlock TextWrapping="Wrap" FontSize="10.5" Foreground="#AEBCCC" LineHeight="17" Margin="0,8,0,0"
                          Text="Paste images with Ctrl+V or drag files in. − / + (both keyboards) or Ctrl+wheel zooms. Space clears the selection — click the element to select it again."/>
             </StackPanel>
@@ -2914,6 +3083,16 @@
         <Path x:Name="DrawShapeVisual" Visibility="Collapsed"
               Stroke="#1E6FBF" StrokeThickness="2" StrokeLineJoin="Round"
               Fill="#2E9BFF" IsHitTestVisible="False"/>
+        <Grid x:Name="LinePreviewGroup" Visibility="Collapsed" ClipToBounds="False"
+              IsHitTestVisible="False">
+          <Path x:Name="LinePreview" Stroke="#2E9BFF" StrokeThickness="4"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                StrokeLineJoin="Round" Fill="Transparent"/>
+          <Path x:Name="LineStartArrowPreview" Fill="#2E9BFF" Stroke="#2E9BFF"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+          <Path x:Name="LineEndArrowPreview" Fill="#2E9BFF" Stroke="#2E9BFF"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+        </Grid>
         <Path x:Name="PolygonDraftLine" Visibility="Collapsed"
               Stroke="#2E9BFF" StrokeThickness="1.5" StrokeDashArray="4 3"
               Fill="Transparent" IsHitTestVisible="False"/>

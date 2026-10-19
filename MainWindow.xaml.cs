@@ -29,8 +29,9 @@ namespace YorteImpact;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private enum ActiveTool { Pick, Slice, Rectangle, Text, Erase, Paintbrush }
-    private enum DragMode { None, Move, Resize, Rotate, Slice, Draw, Paint, Marquee, TextPress }
+    private enum ActiveTool { Pick, Slice, Line, Rectangle, Text, Erase, Paintbrush }
+    private enum DragMode { None, Move, Resize, Rotate, Slice, Draw, DrawLine, Paint, Marquee, TextPress }
+    private enum LineToolMode { Line, Polyline, Freehand }
     private enum RightPanelMode { Inspector, Photo, Grid }
 
     private sealed class AddConverter : IValueConverter
@@ -89,6 +90,8 @@ public partial class MainWindow : Window
     private Point _dragStartCanvas;
     private Point _drawStart;
     private readonly List<Point> _polygonDraft = new();
+    private readonly List<Point> _lineDraft = new();
+    private LineToolMode _lineMode = LineToolMode.Line;
     private double _origX, _origY, _origW, _origH;
     private double _origFontSize;
     private Point _origCenter;
@@ -152,6 +155,7 @@ public partial class MainWindow : Window
     private readonly TextElement _textDefaults = new();
     private bool _suppressTextToolbar;
     private bool _suppressShapeToolbar;
+    private bool _suppressLineToolbar;
 
     private bool _suppressInspector;
     private bool _suppressPhoto;
@@ -228,6 +232,7 @@ public partial class MainWindow : Window
     public MainWindow(int width, int height, Color background, bool transparent, string? startupProject = null)
     {
         _suppressBrushToolbar = true; // XAML construction raises slider/selection events early
+        _suppressLineToolbar = true;
         _suppressPhoto = true;
         _suppressGrid = true;
         InitializeComponent();
@@ -247,9 +252,12 @@ public partial class MainWindow : Window
         else _textDefaults.TextColor1 = _primaryColor;
         _settings.Brush ??= new BrushDefaults();
         _settings.BrushPresets ??= new List<BrushDefaults>();
+        _settings.Line ??= new LineDefaults();
+        _lineMode = ParseLineToolMode(_settings.Line.Mode);
         ApplyBrushDefaults(_settings.Brush);
         RebuildBrushPresetList();
         _suppressBrushToolbar = false;
+        _suppressLineToolbar = false;
         _suppressPhoto = false;
         _suppressGrid = false;
 
@@ -347,6 +355,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             PersistShapeDefaults();
+            PersistLineDefaults();
             PersistTextDefaults();
             PersistBrushDefaults();
             PersistWindowPlacement();
@@ -412,6 +421,7 @@ public partial class MainWindow : Window
         CancelCtrlGesture();
         _drag = DragMode.None;
         DrawShapeVisual.Visibility = Visibility.Collapsed;
+        ResetLineDraft();
         MarqueeVisual.Visibility = Visibility.Collapsed;
         ResetPolygonDraft();
         _pendingSlice = null;
@@ -782,6 +792,7 @@ public partial class MainWindow : Window
         CancelCtrlGesture();
         _drag = DragMode.None;
         DrawShapeVisual.Visibility = Visibility.Collapsed;
+        ResetLineDraft();
         MarqueeVisual.Visibility = Visibility.Collapsed;
         ResetPolygonDraft();
 
@@ -837,15 +848,29 @@ public partial class MainWindow : Window
     private void WindowMaximizeRestore_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
-    private void TitleBarDrag_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void TitleBar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.OriginalSource is not DependencyObject src) return;
+        if (IsInsideVisual(src, TabStrip) || IsInsideVisual(src, NewTabBtn)) return;
+        if (IsInsideButton(src)) return;
         if (e.ClickCount == 2)
         {
             WindowMaximizeRestore_Click(sender, e);
+            e.Handled = true;
             return;
         }
-        if (e.OriginalSource is Button) return;
         try { DragMove(); } catch { }
+    }
+
+    private static bool IsInsideButton(DependencyObject node)
+    {
+        var current = node;
+        while (current != null)
+        {
+            if (current is Button) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private void WindowClose_Click(object sender, RoutedEventArgs e) => Close();
@@ -1187,11 +1212,14 @@ public partial class MainWindow : Window
 
     private void OnSelectionChanged()
     {
+        bool selectionChanged = !ReferenceEquals(_watched, _doc.Selected);
         if (_watched != null) _watched.PropertyChanged -= Watched_PropertyChanged;
         _watched = _doc.Selected;
         if (_watched != null) _watched.PropertyChanged += Watched_PropertyChanged;
         if (_doc.SelectionCount == 1 && _doc.Selected is ShapeElement selectedShape)
             CaptureShapeDefaults(selectedShape);
+        else if (_doc.SelectionCount == 1 && _doc.Selected is LineElement selectedLine)
+            CaptureLineDefaults(selectedLine, captureMode: selectionChanged);
         else if (_doc.SelectionCount == 1 && _doc.Selected is TextElement selectedText)
             CaptureTextDefaults(selectedText);
 
@@ -1210,6 +1238,7 @@ public partial class MainWindow : Window
         if (_tool == ActiveTool.Text) RefreshTextToolbar();
         if (_tool == ActiveTool.Pick) UpdatePickToolbarState();
         if (_tool == ActiveTool.Rectangle) RefreshShapeToolbar();
+        if (_tool == ActiveTool.Line) RefreshLineToolbar();
     }
 
     private void Watched_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1220,6 +1249,11 @@ public partial class MainWindow : Window
         {
             CaptureShapeDefaults(shape);
             if (_tool == ActiveTool.Rectangle) RefreshShapeToolbar();
+        }
+        if (sender is LineElement line && IsLineStyleProperty(e.PropertyName))
+        {
+            CaptureLineDefaults(line);
+            if (_tool == ActiveTool.Line) RefreshLineToolbar();
         }
         if (sender is TextElement text && IsTextStyleProperty(e.PropertyName))
         {
@@ -1234,7 +1268,10 @@ public partial class MainWindow : Window
             or nameof(ShapeElement.FillColor1) or nameof(ShapeElement.FillColor2)
             or nameof(ShapeElement.IsGradient) or nameof(ShapeElement.GradientAngle)
             or nameof(ShapeElement.StrokeColor) or nameof(ShapeElement.StrokeThickness)
-            or nameof(ShapeElement.CornerRadius))
+            or nameof(ShapeElement.CornerRadius)
+            or nameof(LineElement.StrokeColor) or nameof(LineElement.StrokeThickness)
+            or nameof(LineElement.Pattern) or nameof(LineElement.StartCap)
+            or nameof(LineElement.EndCap) or nameof(LineElement.CurveStrength))
         {
             OnSelectionChanged();
         }
@@ -1495,6 +1532,14 @@ public partial class MainWindow : Window
             _pendingSlice = new Rect(pos, new Size(0, 0));
             RefreshSliceLayer();
             Pasteboard.CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
+        if (_tool == ActiveTool.Line && e.ChangedButton == MouseButton.Left)
+        {
+            if (_lineMode == LineToolMode.Polyline) AddPolylinePoint(pos, e.ClickCount);
+            else BeginLineDraw(pos);
             e.Handled = true;
             return;
         }
@@ -1770,6 +1815,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_drag == DragMode.DrawLine)
+        {
+            if (_lineMode == LineToolMode.Freehand && _lineDraft.Count > 0 &&
+                (pos - _lineDraft[^1]).Length >= Math.Max(1, 2 / Math.Max(0.25, _zoom)))
+                _lineDraft.Add(pos);
+            UpdateLinePreview(pos);
+            e.Handled = true;
+            return;
+        }
+
+        if (_tool == ActiveTool.Line && _lineMode == LineToolMode.Polyline
+            && _lineDraft.Count > 0 && _drag == DragMode.None)
+            UpdateLinePreview(pos);
+
         if (_polygonDraft.Count > 0) UpdatePolygonDraftPreview(pos);
 
         if (_drag == DragMode.None && e.LeftButton == MouseButtonState.Released)
@@ -1794,7 +1853,7 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_drag == DragMode.None || (_doc.Selected == null && _drag is not (DragMode.Slice or DragMode.Draw)))
+        if (_drag == DragMode.None || (_doc.Selected == null && _drag is not (DragMode.Slice or DragMode.Draw or DragMode.DrawLine)))
             return;
 
         switch (_drag)
@@ -1883,6 +1942,10 @@ public partial class MainWindow : Window
         if (_drag == DragMode.Draw)
         {
             FinishDraw(e.GetPosition(Pasteboard));
+        }
+        if (_drag == DragMode.DrawLine)
+        {
+            FinishLineDraw(e.GetPosition(Pasteboard));
         }
         _drag = DragMode.None;
         _activeHandle = HandleKind.None;
@@ -2496,6 +2559,16 @@ public partial class MainWindow : Window
     private static T ParseEnum<T>(string? value, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 
+    private static LineToolMode ParseLineToolMode(string? value) =>
+        string.Equals(value, "Arrow", StringComparison.OrdinalIgnoreCase)
+            ? LineToolMode.Line
+            : ParseEnum(value, LineToolMode.Line);
+
+    private static LineEndpointStyle ParseLineEndpointStyle(string? value) =>
+        string.Equals(value, "Triangle", StringComparison.OrdinalIgnoreCase)
+            ? LineEndpointStyle.OpenArrow
+            : ParseEnum(value, LineEndpointStyle.Flat);
+
     private void CaptureShapeDefaults(ShapeElement sh)
     {
         var d = _settings.Shape;
@@ -2556,6 +2629,191 @@ public partial class MainWindow : Window
         PersistShapeDefaults();
         StatusText.Text = $"Drew {el.Kind.ToString().ToLowerInvariant()} {rect.Width:F0}x{rect.Height:F0}. Drag another, or press V for Pick.";
         NoteIfOutsideCanvas();
+    }
+
+    private void BeginLineDraw(Point pos)
+    {
+        ResetLineDraft();
+        _lineDraft.Add(pos);
+        _drawStart = pos;
+        _drag = DragMode.DrawLine;
+        Pasteboard.CaptureMouse();
+        UpdateLinePreview(pos);
+        StatusText.Text = _lineMode == LineToolMode.Freehand
+            ? "Freehand line: draw and release. Esc cancels."
+            : "Drag to draw a straight line. Esc cancels.";
+    }
+
+    private void UpdateLinePreview(Point cursor)
+    {
+        var points = (_lineMode is LineToolMode.Freehand or LineToolMode.Polyline)
+            ? _lineDraft.ToList()
+            : new List<Point> { _drawStart, cursor };
+        if ((_lineMode is LineToolMode.Freehand or LineToolMode.Polyline) && points.Count > 0 &&
+            (cursor - points[^1]).Length > 0.1)
+            points.Add(cursor);
+        if (points.Count < 2) return;
+
+        var line = CreateLineFromPoints(points,
+            freehand: _lineMode == LineToolMode.Freehand,
+            polyline: _lineMode == LineToolMode.Polyline);
+        LinePreview.Data = line.PathGeometry;
+        LinePreview.Stroke = line.StrokeBrush;
+        LinePreview.StrokeThickness = line.StrokeThickness;
+        LinePreview.StrokeDashArray = line.DashArray;
+        LinePreview.StrokeStartLineCap = line.StrokeStartLineCap;
+        LinePreview.StrokeEndLineCap = line.StrokeEndLineCap;
+        LinePreview.Width = line.Width;
+        LinePreview.Height = line.Height;
+        LineStartArrowPreview.Data = line.StartMarkerGeometry;
+        LineStartArrowPreview.Fill = line.StrokeBrush;
+        LineStartArrowPreview.Stroke = line.StrokeBrush;
+        LineStartArrowPreview.StrokeThickness = line.StrokeThickness;
+        LineStartArrowPreview.Width = line.Width;
+        LineStartArrowPreview.Height = line.Height;
+        LineEndArrowPreview.Data = line.EndMarkerGeometry;
+        LineEndArrowPreview.Fill = line.StrokeBrush;
+        LineEndArrowPreview.Stroke = line.StrokeBrush;
+        LineEndArrowPreview.StrokeThickness = line.StrokeThickness;
+        LineEndArrowPreview.Width = line.Width;
+        LineEndArrowPreview.Height = line.Height;
+        LinePreviewGroup.Width = line.Width;
+        LinePreviewGroup.Height = line.Height;
+        LinePreviewGroup.Effect = line.ShadowEffect;
+        Canvas.SetLeft(LinePreviewGroup, line.X);
+        Canvas.SetTop(LinePreviewGroup, line.Y);
+        LinePreviewGroup.Visibility = Visibility.Visible;
+    }
+
+    private LineElement CreateLineFromPoints(IReadOnlyList<Point> points, bool freehand, bool polyline = false)
+    {
+        var defaults = _settings.Line;
+        double thickness = Math.Clamp(defaults.Thickness, 1, 30);
+        double minX = points.Min(p => p.X);
+        double minY = points.Min(p => p.Y);
+        double maxX = points.Max(p => p.X);
+        double maxY = points.Max(p => p.Y);
+        bool hasEndpointMarker = ParseLineEndpointStyle(defaults.StartCap) != LineEndpointStyle.Flat
+            || ParseLineEndpointStyle(defaults.EndCap) != LineEndpointStyle.Flat;
+        double padding = hasEndpointMarker
+            ? Math.Max(10, thickness * 2.5)
+            : Math.Max(2, thickness * 1.5);
+        double width = Math.Max(1, maxX - minX) + padding * 2;
+        double height = Math.Max(1, maxY - minY) + padding * 2;
+        var line = new LineElement
+        {
+            X = minX - padding,
+            Y = minY - padding,
+            Width = width,
+            Height = height,
+            StrokeColor = ReadLineColor(defaults.Color),
+            StrokeThickness = thickness,
+            Pattern = ParseEnum(defaults.Pattern, LinePattern.Solid),
+            StartCap = ParseLineEndpointStyle(defaults.StartCap),
+            EndCap = ParseLineEndpointStyle(defaults.EndCap),
+            IsFreehand = freehand,
+            IsPolyline = polyline,
+            CurveStrength = defaults.CurveStrength,
+        };
+        line.SetPathPoints(points.Select(p => new Point(
+            (p.X - minX + padding) / width,
+            (p.Y - minY + padding) / height)));
+        if (defaults.Shadow)
+        {
+            line.ApplyShadowPreset(ShadowStyle.Medium);
+            line.ShadowColor = ReadLineColor(defaults.ShadowColor);
+        }
+        return line;
+    }
+
+    private void AddPolylinePoint(Point pos, int clickCount)
+    {
+        if (_lineDraft.Count == 0)
+        {
+            _lineDraft.Add(pos);
+            UpdateLinePreview(pos);
+            StatusText.Text = "Polyline: click to add points; double-click or Enter finishes, Esc cancels.";
+            return;
+        }
+
+        double minDistance = Math.Max(1, 2 / Math.Max(0.25, _zoom));
+        if ((pos - _lineDraft[^1]).Length >= minDistance)
+            _lineDraft.Add(pos);
+
+        if (clickCount >= 2)
+        {
+            FinishPolylineDraw();
+            return;
+        }
+
+        UpdateLinePreview(pos);
+        StatusText.Text = _lineDraft.Count < 2
+            ? "Polyline: click another point; double-click or Enter finishes, Esc cancels."
+            : $"Polyline: {_lineDraft.Count} points; click to add a corner, double-click or Enter finishes, Esc cancels.";
+    }
+
+    private void FinishLineDraw(Point cursor)
+    {
+        var points = _lineMode == LineToolMode.Freehand
+            ? _lineDraft.ToList()
+            : new List<Point> { _drawStart, cursor };
+        if (_lineMode == LineToolMode.Freehand && points.Count > 0 &&
+            (cursor - points[^1]).Length > 0.1)
+            points.Add(cursor);
+
+        LinePreviewGroup.Visibility = Visibility.Collapsed;
+        LinePreview.Data = null;
+        LineStartArrowPreview.Data = null;
+        LineEndArrowPreview.Data = null;
+        _lineDraft.Clear();
+        if (points.Count < 2 || (points[^1] - points[0]).Length < 1)
+            return;
+
+        PushUndo();
+        var line = CreateLineFromPoints(points, freehand: _lineMode == LineToolMode.Freehand);
+        _doc.Add(line);
+        PersistLineDefaults();
+        StatusText.Text = _lineMode == LineToolMode.Freehand
+            ? $"Drew freehand line ({points.Count} points). Draw another or press V for Pick."
+            : "Drew straight line. Draw another or press V for Pick.";
+        NoteIfOutsideCanvas();
+    }
+
+    private void FinishPolylineDraw()
+    {
+        if (_lineDraft.Count < 2)
+        {
+            StatusText.Text = "Polyline needs at least two points.";
+            return;
+        }
+
+        var points = _lineDraft.ToList();
+        ResetLineDraft();
+        PushUndo();
+        var line = CreateLineFromPoints(points, freehand: false, polyline: true);
+        _doc.Add(line);
+        PersistLineDefaults();
+        StatusText.Text = $"Drew polyline ({points.Count} points). Draw another or press V for Pick.";
+        NoteIfOutsideCanvas();
+    }
+
+    private void CancelLineDraft()
+    {
+        ResetLineDraft();
+        _drag = DragMode.None;
+        if (Pasteboard.IsMouseCaptured) Pasteboard.ReleaseMouseCapture();
+        StatusText.Text = "Line drawing cancelled.";
+    }
+
+    private void ResetLineDraft()
+    {
+        _lineDraft.Clear();
+        if (LinePreview == null) return;
+        LinePreviewGroup.Visibility = Visibility.Collapsed;
+        LinePreview.Data = null;
+        LineStartArrowPreview.Data = null;
+        LineEndArrowPreview.Data = null;
+        LinePreviewGroup.Effect = null;
     }
 
     private void UpdatePolygonDraftPreview(Point? cursor)
@@ -3034,6 +3292,29 @@ public partial class MainWindow : Window
             }
         }
 
+        if (_drag == DragMode.DrawLine && e.Key == Key.Escape)
+        {
+            CancelLineDraft();
+            e.Handled = true;
+            return;
+        }
+
+        if (_tool == ActiveTool.Line && _lineMode == LineToolMode.Polyline && _lineDraft.Count > 0)
+        {
+            if (e.Key == Key.Enter)
+            {
+                FinishPolylineDraw();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Escape)
+            {
+                CancelLineDraft();
+                e.Handled = true;
+                return;
+            }
+        }
+
         bool ctrl = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
 
         if (ctrl && e.Key == Key.N) { NewCanvas_Click(sender, e); e.Handled = true; }
@@ -3045,7 +3326,7 @@ public partial class MainWindow : Window
         else if (ctrl && e.Key == Key.S) { SaveProject_Click(sender, e); e.Handled = true; }
         else if (ctrl && e.Key == Key.C) { CopySelectionOrSlice(); e.Handled = true; }
         else if (ctrl && e.Key == Key.X) { CutSelectionOrSlice(); e.Handled = true; }
-        else if (ctrl && e.Key == Key.F) { PickElementFill(); e.Handled = true; }
+        else if (ctrl && e.Key == Key.F) { PickContextColor(); e.Handled = true; }
         else if (ctrl && e.Key == Key.R) { FitCanvasToSelection(); e.Handled = true; }
         else if (ctrl && e.Key == Key.V) { PasteFromClipboardOrPrototype(); e.Handled = true; }
         else if (ctrl && e.Key == Key.D) { DuplicateProjectTab(); e.Handled = true; }
@@ -3063,6 +3344,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.V && !ctrl) { SetTool(ActiveTool.Pick); e.Handled = true; }
         else if (e.Key == Key.M && !ctrl) { SetTool(ActiveTool.Slice); e.Handled = true; }
         else if (e.Key == Key.R && !ctrl) { SetTool(ActiveTool.Rectangle); e.Handled = true; }
+        else if (e.Key == Key.L && !ctrl) { SetTool(ActiveTool.Line); e.Handled = true; }
         else if (e.Key == Key.T && !ctrl) { SetTool(ActiveTool.Text); e.Handled = true; }
         else if (e.Key == Key.E && !ctrl) { SetTool(ActiveTool.Erase); e.Handled = true; }
         else if (e.Key == Key.B && !ctrl) { SetTool(ActiveTool.Paintbrush); e.Handled = true; }
@@ -3095,6 +3377,7 @@ public partial class MainWindow : Window
             }
             if (_drag == DragMode.Paint) EndBrushStroke();
             if (_drag == DragMode.Draw) { DrawShapeVisual.Visibility = Visibility.Collapsed; HideDrawSizeTip(); }
+            if (_drag == DragMode.DrawLine) ResetLineDraft();
             if (_drag != DragMode.None) { _drag = DragMode.None; _moveUndoPending = false; HideSnapGuides(); Pasteboard.ReleaseMouseCapture(); }
             else if (_tool != ActiveTool.Pick) SetTool(ActiveTool.Pick);
             else
@@ -3882,18 +4165,6 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void TabDropArea_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is not DependencyObject src) return;
-        if (IsInsideVisual(src, TabStrip) || IsInsideVisual(src, NewTabBtn)) return;
-        if (e.ClickCount == 2)
-        {
-            WindowMaximizeRestore_Click(sender, e);
-            return;
-        }
-        try { DragMove(); } catch { }
-    }
-
     private void TabDropArea_DragLeave(object sender, DragEventArgs e)
     {
         var p = e.GetPosition(TabDropArea);
@@ -4025,6 +4296,222 @@ public partial class MainWindow : Window
         ArmInspectorUndo();
         el.SoftEdge = AttrSoft.Value;
     }
+
+    // ---------- line and arrow tool ----------
+
+    private LineElement? SelectedLine => _doc.Selected as LineElement;
+
+    private void AttrLineMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLineToolbar || sender is not ToggleButton { Tag: string tag }
+            || !Enum.TryParse<LineToolMode>(tag, true, out var mode)) return;
+
+        if (_lineDraft.Count > 0 && mode != _lineMode) CancelLineDraft();
+        _lineMode = mode;
+        _settings.Line.Mode = mode.ToString();
+        RefreshLineToolbar();
+    }
+
+    private void AttrLinePattern_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLineToolbar || sender is not ToggleButton { Tag: string tag }
+            || !Enum.TryParse<LinePattern>(tag, true, out var pattern)) return;
+        var target = SelectedLine;
+        if (target != null && target.Pattern != pattern)
+        {
+            PushUndo();
+            target.Pattern = pattern;
+        }
+        _settings.Line.Pattern = pattern.ToString();
+        RefreshLineToolbar();
+    }
+
+    private void AttrLineCap_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLineToolbar || sender is not ToggleButton { Tag: string tag }) return;
+        var parts = tag.Split(':', 2);
+        if (parts.Length != 2 || !Enum.TryParse<LineEndpointStyle>(parts[1], true, out var cap)) return;
+
+        var target = SelectedLine;
+        bool isStart = parts[0] == "Start";
+        if (target != null)
+        {
+            var current = isStart ? target.StartCap : target.EndCap;
+            if (current != cap)
+            {
+                PushUndo();
+                if (isStart) target.StartCap = cap;
+                else target.EndCap = cap;
+            }
+        }
+        if (isStart) _settings.Line.StartCap = cap.ToString();
+        else _settings.Line.EndCap = cap.ToString();
+        RefreshLineToolbar();
+    }
+
+    private void AttrLineColor_Click(object sender, RoutedEventArgs e)
+    {
+        var target = SelectedLine;
+        var current = target?.StrokeColor ?? ReadLineColor(_settings.Line.Color);
+        var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        if (target != null && target.StrokeColor != dialog.SelectedColor)
+        {
+            PushUndo();
+            target.StrokeColor = dialog.SelectedColor;
+        }
+        _settings.Line.Color = ToHex(dialog.SelectedColor);
+        RefreshLineToolbar();
+        StatusText.Text = $"Line color set to {ToHex(dialog.SelectedColor)}.";
+    }
+
+    private void AttrLineThickness_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressLineToolbar) return;
+        var target = SelectedLine;
+        if (target != null)
+        {
+            if (Math.Abs(target.StrokeThickness - AttrLineThickness.Value) < 0.01) return;
+            ArmInspectorUndo();
+            target.StrokeThickness = AttrLineThickness.Value;
+        }
+        _settings.Line.Thickness = AttrLineThickness.Value;
+        RefreshLineToolbar();
+    }
+
+    private void AttrLineCurve_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressLineToolbar) return;
+        var target = SelectedLine;
+        if (target is { IsFreehand: true })
+        {
+            if (Math.Abs(target.CurveStrength - AttrLineCurve.Value) < 0.01) return;
+            ArmInspectorUndo();
+            target.CurveStrength = AttrLineCurve.Value;
+        }
+        _settings.Line.CurveStrength = AttrLineCurve.Value;
+        RefreshLineToolbar();
+    }
+
+    private void AttrLineShadow_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressLineToolbar) return;
+        bool enabled = AttrLineShadowCheck.IsChecked == true;
+        var target = SelectedLine;
+        if (target != null && (target.ShadowStyle != ShadowStyle.None) != enabled)
+        {
+            PushUndo();
+            if (enabled)
+            {
+                target.ApplyShadowPreset(ShadowStyle.Medium);
+                target.ShadowColor = ReadLineColor(_settings.Line.ShadowColor);
+            }
+            else target.ShadowStyle = ShadowStyle.None;
+        }
+        _settings.Line.Shadow = enabled;
+        if (target != null) RefreshInspector();
+        RefreshLineToolbar();
+    }
+
+    private void AttrLineShadowColor_Click(object sender, RoutedEventArgs e)
+    {
+        var target = SelectedLine;
+        var current = target?.ShadowColor ?? ReadLineColor(_settings.Line.ShadowColor);
+        var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        if (target != null && target.ShadowColor != dialog.SelectedColor)
+        {
+            PushUndo();
+            target.ShadowColor = dialog.SelectedColor;
+        }
+        _settings.Line.ShadowColor = ToHex(dialog.SelectedColor);
+        if (target != null) RefreshInspector();
+        RefreshLineToolbar();
+    }
+
+    private void RefreshLineToolbar()
+    {
+        if (AttrLinePanel == null) return;
+        _suppressLineToolbar = true;
+        try
+        {
+            var line = SelectedLine;
+            var defaults = _settings.Line;
+            var pattern = line?.Pattern ?? ParseEnum(defaults.Pattern, LinePattern.Solid);
+            var startCap = line?.StartCap ?? ParseLineEndpointStyle(defaults.StartCap);
+            var endCap = line?.EndCap ?? ParseLineEndpointStyle(defaults.EndCap);
+            var color = line?.StrokeColor ?? ReadLineColor(defaults.Color);
+            AttrLineModeLineBtn.IsChecked = _lineMode == LineToolMode.Line;
+            AttrLineModePolylineBtn.IsChecked = _lineMode == LineToolMode.Polyline;
+            AttrLineModeFreehandBtn.IsChecked = _lineMode == LineToolMode.Freehand;
+            AttrLineColorBtn.Background = new SolidColorBrush(color);
+            AttrLineThickness.SetValue(line?.StrokeThickness ?? defaults.Thickness);
+            AttrLineSolidBtn.IsChecked = pattern == LinePattern.Solid;
+            AttrLineDashedBtn.IsChecked = pattern == LinePattern.Dashed;
+            AttrLineDottedBtn.IsChecked = pattern == LinePattern.Dotted;
+            AttrLineStartFlatBtn.IsChecked = startCap == LineEndpointStyle.Flat;
+            AttrLineStartArrowBtn.IsChecked = startCap == LineEndpointStyle.OpenArrow;
+            AttrLineStartFilledArrowBtn.IsChecked = startCap == LineEndpointStyle.FilledTriangle;
+            AttrLineStartRoundBtn.IsChecked = startCap == LineEndpointStyle.Round;
+            AttrLineStartSquareBtn.IsChecked = startCap == LineEndpointStyle.Square;
+            AttrLineEndFlatBtn.IsChecked = endCap == LineEndpointStyle.Flat;
+            AttrLineEndArrowBtn.IsChecked = endCap == LineEndpointStyle.OpenArrow;
+            AttrLineEndFilledArrowBtn.IsChecked = endCap == LineEndpointStyle.FilledTriangle;
+            AttrLineEndRoundBtn.IsChecked = endCap == LineEndpointStyle.Round;
+            AttrLineEndSquareBtn.IsChecked = endCap == LineEndpointStyle.Square;
+            AttrLineCurve.SetValue(line is { IsFreehand: true } ? line.CurveStrength : defaults.CurveStrength);
+            bool showCurve = _lineMode == LineToolMode.Freehand || line?.IsFreehand == true;
+            AttrLineCurve.Visibility = showCurve ? Visibility.Visible : Visibility.Collapsed;
+            AttrLineCurve.IsEnabled = line == null || line.IsFreehand || _lineMode == LineToolMode.Freehand;
+            AttrLineShadowCheck.IsChecked = (line?.ShadowStyle != ShadowStyle.None) && line != null
+                || (line == null && defaults.Shadow);
+            AttrLineShadowColorBtn.Background = new SolidColorBrush(
+                line?.ShadowColor ?? ReadLineColor(defaults.ShadowColor));
+        }
+        finally
+        {
+            _suppressLineToolbar = false;
+        }
+    }
+
+    private static Color ReadLineColor(string? value) =>
+        TryParseColor(value, out var color) ? color : Color.FromRgb(0x2E, 0x9B, 0xFF);
+
+    private void CaptureLineDefaults(LineElement line, bool captureMode = false)
+    {
+        var defaults = _settings.Line;
+        defaults.Color = ToHex(line.StrokeColor);
+        if (captureMode)
+        {
+            defaults.Mode = line.IsFreehand
+                ? LineToolMode.Freehand.ToString()
+                : (line.IsPolyline || line.PathPoints.Count > 2 ? LineToolMode.Polyline : LineToolMode.Line).ToString();
+            _lineMode = ParseLineToolMode(defaults.Mode);
+        }
+        defaults.Thickness = line.StrokeThickness;
+        defaults.Pattern = line.Pattern.ToString();
+        defaults.StartCap = line.StartCap.ToString();
+        defaults.EndCap = line.EndCap.ToString();
+        defaults.CurveStrength = line.CurveStrength;
+        defaults.Shadow = line.ShadowStyle != ShadowStyle.None;
+        defaults.ShadowColor = ToHex(line.ShadowColor);
+    }
+
+    private void PersistLineDefaults()
+    {
+        var fresh = AppSettings.Load();
+        fresh.Line = _settings.Line;
+        fresh.Save();
+    }
+
+    private static bool IsLineStyleProperty(string? name) => name is
+        nameof(LineElement.StrokeColor) or nameof(LineElement.StrokeThickness)
+        or nameof(LineElement.Pattern) or nameof(LineElement.StartCap)
+        or nameof(LineElement.EndCap) or nameof(LineElement.IsFreehand) or nameof(LineElement.IsPolyline)
+        or nameof(LineElement.CurveStrength) or nameof(DesignElement.ShadowStyle)
+        or nameof(DesignElement.ShadowX) or nameof(DesignElement.ShadowY)
+        or nameof(DesignElement.ShadowBlur) or nameof(DesignElement.ShadowOpacity)
+        or nameof(DesignElement.ShadowColor);
 
     // ---------- shape tool bar ----------
 
@@ -4724,6 +5211,7 @@ public partial class MainWindow : Window
 
     private void ToolPick_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Pick);
     private void ToolSlice_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Slice);
+    private void ToolLine_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Line);
     private void ToolRect_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Rectangle);
     private void ToolText_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Text);
     private void ToolErase_Click(object sender, RoutedEventArgs e) => SetTool(ActiveTool.Erase);
@@ -4744,6 +5232,12 @@ public partial class MainWindow : Window
             CommitTextEdit(); // leave the in-place editor before switching tools
         bool leftSlice = _tool == ActiveTool.Slice && tool != ActiveTool.Slice;
         if (tool != ActiveTool.Rectangle && _polygonDraft.Count > 0) ResetPolygonDraft();
+        if (tool != ActiveTool.Line && _lineDraft.Count > 0)
+        {
+            ResetLineDraft();
+            if (_drag == DragMode.DrawLine) _drag = DragMode.None;
+            if (Pasteboard.IsMouseCaptured) Pasteboard.ReleaseMouseCapture();
+        }
         if (_drag == DragMode.Paint && tool != ActiveTool.Paintbrush) EndBrushStroke();
         if (_drag == DragMode.TextPress)
         {
@@ -4765,6 +5259,7 @@ public partial class MainWindow : Window
                     ? "Slice tool (add): each drag adds a region - Export / Ctrl+C / Delete-cut / Ctrl+R crop the active one."
                     : "Slice tool: each drag replaces the region - Export / Ctrl+C / Delete-cut / Ctrl+R crop it. +Add slice to accumulate.",
                 ActiveTool.Rectangle => "Path tool: choose a shape and drag; Polygon uses click-to-connect. V returns to Pick.",
+                ActiveTool.Line => "Line tool: draw a straight line, click points for a polyline, or draw freehand.",
                 ActiveTool.Text => "Text tool: click the canvas and type. Enter = new line, Esc or click outside = done. RTL is automatic (button in the inspector).",
                 ActiveTool.Erase => "Background remover: click an image to erase that color's connected area, or press Auto to clear the border background.",
                 ActiveTool.Paintbrush => "Paintbrush: paint on the clicked image or on the canvas. Alt+click samples a color; [ / ] changes the size.",
@@ -4777,6 +5272,7 @@ public partial class MainWindow : Window
         SidePickBtn.IsChecked = _tool == ActiveTool.Pick;
         SideSliceBtn.IsChecked = _tool == ActiveTool.Slice;
         SideRectBtn.IsChecked = _tool == ActiveTool.Rectangle;
+        SideLineBtn.IsChecked = _tool == ActiveTool.Line;
         SideTextBtn.IsChecked = _tool == ActiveTool.Text;
         SideEraseBtn.IsChecked = _tool == ActiveTool.Erase;
         SideBrushBtn.IsChecked = _tool == ActiveTool.Paintbrush;
@@ -4795,17 +5291,20 @@ public partial class MainWindow : Window
         AttrBrushPanel.Visibility = _tool == ActiveTool.Paintbrush ? Visibility.Visible : Visibility.Collapsed;
         AttrTextPanel.Visibility = _tool == ActiveTool.Text ? Visibility.Visible : Visibility.Collapsed;
         AttrRectPanel.Visibility = _tool == ActiveTool.Rectangle ? Visibility.Visible : Visibility.Collapsed;
+        AttrLinePanel.Visibility = _tool == ActiveTool.Line ? Visibility.Visible : Visibility.Collapsed;
         bool hint = _tool is not (ActiveTool.Pick or ActiveTool.Slice or ActiveTool.Erase
-            or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Paintbrush);
+            or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Line or ActiveTool.Paintbrush);
         AttrHint.Visibility = hint ? Visibility.Visible : Visibility.Collapsed;
         if (_tool == ActiveTool.Text) RefreshTextToolbar();
         if (_tool == ActiveTool.Rectangle) RefreshShapeToolbar();
+        if (_tool == ActiveTool.Line) RefreshLineToolbar();
         if (_tool == ActiveTool.Paintbrush) RefreshBrushToolbar();
         AttrToolName.Text = _tool switch
         {
             ActiveTool.Pick => "PICK",
             ActiveTool.Slice => "SLICE",
             ActiveTool.Rectangle => "PATH",
+            ActiveTool.Line => "LINE AND ARROW",
             ActiveTool.Text => "TEXT",
             ActiveTool.Erase => "ERASE BACKGROUND",
             ActiveTool.Paintbrush => "PAINTBRUSH",
@@ -4814,6 +5313,7 @@ public partial class MainWindow : Window
         AttrHint.Text = _tool switch
         {
             ActiveTool.Rectangle => "Choose Rectangle, Ellipse, Triangle or Polygon in the top bar, then draw on the canvas.",
+            ActiveTool.Line => "Choose Line, Polyline or Freehand; set start and end markers independently, including arrowheads.",
             ActiveTool.Text => "Click the canvas and type. Enter = new line; Esc or click outside finishes. Auto RTL.",
             _ => "",
         };
@@ -6932,15 +7432,15 @@ public partial class MainWindow : Window
         sh.StrokeThickness = InspStrokeThick.Value;
     }
 
-    /// <summary>Ctrl+F: pick a shape fill, text color, or image color.</summary>
-    private void PickElementFill()
+    /// <summary>Ctrl+F edits the selected element color, or the active tool's color default.</summary>
+    private void PickContextColor()
     {
         if (_doc.Selected is GroupElement group)
         {
             var shapes = group.Children.OfType<ShapeElement>().ToList();
             if (shapes.Count == 0)
             {
-                StatusText.Text = "Ctrl+F changes the fill of a shape or the color of text.";
+                StatusText.Text = "Ctrl+F changes the selected object's color or the active tool's color.";
                 return;
             }
             var dlgGroup = new ColorPickerDialog(shapes[0].FillColor1, CanvasColorsWithPrimary()) { Owner = this };
@@ -6950,6 +7450,12 @@ public partial class MainWindow : Window
             RefreshInspector();
             RefreshShapeToolbar();
             StatusText.Text = $"Group fill set to {ToHex(dlgGroup.SelectedColor)}.";
+            return;
+        }
+
+        if (_doc.Selected is LineElement)
+        {
+            AttrLineColor_Click(this, new RoutedEventArgs());
             return;
         }
 
@@ -6986,10 +7492,27 @@ public partial class MainWindow : Window
         {
             if (_doc.Selected != null)
             {
-                StatusText.Text = "Ctrl+F changes the fill of a shape or the color of text.";
+                StatusText.Text = "Ctrl+F changes the selected object's color or the active tool's color.";
                 return;
             }
-            PickCanvasColor();
+            switch (_tool)
+            {
+                case ActiveTool.Rectangle:
+                    AttrShapeFill1_Click(this, new RoutedEventArgs());
+                    break;
+                case ActiveTool.Line:
+                    AttrLineColor_Click(this, new RoutedEventArgs());
+                    break;
+                case ActiveTool.Text:
+                    AttrTextColor_Click(this, new RoutedEventArgs());
+                    break;
+                case ActiveTool.Paintbrush:
+                    AttrBrushColor_Click(this, new RoutedEventArgs());
+                    break;
+                default:
+                    PickCanvasColor();
+                    break;
+            }
             return;
         }
         var dlgShape = new ColorPickerDialog(sh.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
