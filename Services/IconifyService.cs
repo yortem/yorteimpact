@@ -159,6 +159,17 @@ public static class IconifyService
             Start = start,
         };
         SearchCache[cacheKey] = result;
+        // Keep the caches bounded: every search keeps a full page of icons.
+        if (SearchCache.Count > 24)
+        {
+            foreach (var stale in SearchCache.Keys.Take(SearchCache.Count - 24).ToList())
+                SearchCache.TryRemove(stale, out _);
+        }
+        if (PathCache.Count > 4000)
+        {
+            foreach (var stale in PathCache.Keys.Take(PathCache.Count - 4000).ToList())
+                PathCache.TryRemove(stale, out _);
+        }
         return result;
     }
 

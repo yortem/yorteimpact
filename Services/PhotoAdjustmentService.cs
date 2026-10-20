@@ -19,6 +19,8 @@ public static class PhotoAdjustmentService
 
         var bmp = ToBgra32(source, maxDimension);
         if (adjustments.IsDefault) return bmp;
+        // The intensity alone changes nothing: nothing to render.
+        if (!adjustments.HasAdjustments) return bmp;
 
         int w = bmp.PixelWidth;
         int h = bmp.PixelHeight;

@@ -77,6 +77,17 @@ public sealed class PhotoAdjustments
         _grain == 0 && _blur == 0 && _sharpen == 0 && _glow == 0 && _toneAmount == 0 &&
         _recolorAmount == 0 && _intensity == 100;
 
+    /// <summary>
+    /// True when no effect is set at all. The intensity alone changes nothing
+    /// on its own, so it does not count here.
+    /// </summary>
+    public bool HasAdjustments =>
+        _exposure != 0 || _contrast != 0 || _highlights != 0 || _shadows != 0 ||
+        _whites != 0 || _blacks != 0 || _temperature != 0 || _tint != 0 ||
+        _vibrance != 0 || _saturation != 0 || _clarity != 0 || _vignette != 0 ||
+        _grain != 0 || _blur != 0 || _sharpen != 0 || _glow != 0 ||
+        _toneAmount != 0 || _recolorAmount != 0;
+
     public void Reset()
     {
         _exposure = _contrast = _highlights = _shadows = _whites = _blacks = 0;

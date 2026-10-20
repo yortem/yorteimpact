@@ -94,6 +94,7 @@ public static class PixabayService
     private static readonly string CacheFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "YorteImpact", "photo-cache.json");
+    private static readonly object DiskCacheGate = new();
     private static Dictionary<string, DiskEntry> _diskCache = new(StringComparer.OrdinalIgnoreCase);
     private static bool _diskCacheLoaded;
 
@@ -114,22 +115,25 @@ public static class PixabayService
     {
         if (_diskCacheLoaded) return;
         _diskCacheLoaded = true;
-        try
+        lock (DiskCacheGate)
         {
-            if (!File.Exists(CacheFilePath)) return;
-            var doc = JsonSerializer.Deserialize<DiskCacheFile>(File.ReadAllText(CacheFilePath));
-            if (doc?.Entries == null) return;
-            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            foreach (var entry in doc.Entries)
+            try
             {
-                if (string.IsNullOrEmpty(entry.Key)) continue;
-                if (now - entry.Timestamp > (long)CacheLifetime.TotalSeconds) continue;
-                _diskCache[entry.Key] = entry;
+                if (!File.Exists(CacheFilePath)) return;
+                var doc = JsonSerializer.Deserialize<DiskCacheFile>(File.ReadAllText(CacheFilePath));
+                if (doc?.Entries == null) return;
+                long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                foreach (var entry in doc.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Key)) continue;
+                    if (now - entry.Timestamp > (long)CacheLifetime.TotalSeconds) continue;
+                    _diskCache[entry.Key] = entry;
+                }
             }
-        }
-        catch
-        {
-            // A broken cache just means we ask the library again.
+            catch
+            {
+                // A broken cache just means we ask the library again.
+            }
         }
     }
 
@@ -137,17 +141,32 @@ public static class PixabayService
     {
         try
         {
-            var entries = _diskCache.Values
-                .OrderByDescending(e => e.Timestamp)
-                .Take(60)
-                .ToList();
+            List<DiskEntry> entries;
+            lock (DiskCacheGate)
+            {
+                entries = _diskCache.Values
+                    .OrderByDescending(e => e.Timestamp)
+                    .Take(24)
+                    .ToList();
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(CacheFilePath)!);
-            File.WriteAllText(CacheFilePath, JsonSerializer.Serialize(new DiskCacheFile { Entries = entries }));
+            // Write beside the target and swap, so a crash cannot truncate it.
+            string temp = CacheFilePath + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(new DiskCacheFile { Entries = entries }));
+            File.Move(temp, CacheFilePath, overwrite: true);
         }
         catch
         {
             // Caching is best-effort.
         }
+    }
+
+    /// <summary>Short fingerprint of the API key so caches never mix keys.</summary>
+    private static string KeyFingerprint(string apiKey)
+    {
+        var bytes = System.Security.Cryptography.SHA1.HashData(
+            System.Text.Encoding.UTF8.GetBytes(apiKey.Trim()));
+        return Convert.ToHexString(bytes, 0, 4);
     }
 
     /// <param name="orientation">"all", "horizontal" or "vertical".</param>
@@ -159,12 +178,17 @@ public static class PixabayService
             throw new InvalidOperationException("Add your Pixabay API key in Settings to search photos.");
         if (page < 1) page = 1;
 
-        string cacheKey = $"{query.Trim().ToLowerInvariant()}|{orientation}|{page}";
+        string cacheKey = $"{KeyFingerprint(apiKey)}|{query.Trim().ToLowerInvariant()}|{orientation}|{page}";
         if (Cache.TryGetValue(cacheKey, out var cached))
             return cached;
 
         EnsureDiskCache();
-        if (_diskCache.TryGetValue(cacheKey, out var diskEntry))
+        DiskEntry? diskEntry = null;
+        lock (DiskCacheGate)
+        {
+            _diskCache.TryGetValue(cacheKey, out diskEntry);
+        }
+        if (diskEntry != null)
         {
             var fromDisk = new PhotoSearchResult
             {
@@ -241,19 +265,34 @@ public static class PixabayService
         };
         Cache[cacheKey] = result;
 
-        _diskCache[cacheKey] = new DiskEntry
+        lock (DiskCacheGate)
         {
-            Key = cacheKey,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            TotalHits = totalHits,
-            Items = results,
-        };
+            _diskCache[cacheKey] = new DiskEntry
+            {
+                Key = cacheKey,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                TotalHits = totalHits,
+                Items = results,
+            };
+            // Keep both copies bounded: the oldest entries are dropped.
+            if (_diskCache.Count > 48)
+            {
+                foreach (var stale in _diskCache.Values
+                             .OrderBy(e => e.Timestamp)
+                             .Take(_diskCache.Count - 48).ToList())
+                {
+                    _diskCache.Remove(stale.Key);
+                    Cache.TryRemove(stale.Key, out _);
+                }
+            }
+        }
         SaveDiskCache();
         return result;
     }
 
     /// <summary>Download a photo (1280px version) as a frozen bitmap.</summary>
-    public static async Task<BitmapSource?> DownloadAsync(string url, CancellationToken ct = default)    {
+    public static async Task<BitmapSource?> DownloadAsync(string url, CancellationToken ct = default)
+    {
         if (string.IsNullOrWhiteSpace(url)) return null;
 
         using var resp = await Http.GetAsync(url, ct).ConfigureAwait(false);

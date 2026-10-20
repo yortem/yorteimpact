@@ -5779,14 +5779,12 @@ public partial class MainWindow : Window
         var sidebar = ElementsSidebar;
         int version = ++_elementsSidebarVersion;
 
-        var fade = new DoubleAnimation(open ? 0 : 1, open ? 1 : 0, ElementsSidebarDuration)
-        {
-            FillBehavior = FillBehavior.HoldEnd,
-        };
-        ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fade);
-
         if (open)
         {
+            // Already fully open: nothing to animate (and no flicker).
+            if (sidebar.Visibility == Visibility.Visible &&
+                sidebar.ActualWidth >= ElementsSidebarWidth - 0.5) return;
+
             double from = 0;
             if (sidebar.Visibility == Visibility.Visible)
             {
@@ -5802,6 +5800,12 @@ public partial class MainWindow : Window
                 sidebar.Width = 0;
             }
 
+            var fade = new DoubleAnimation(0, 1, ElementsSidebarDuration)
+            {
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fade);
+
             var grow = new DoubleAnimation(from, ElementsSidebarWidth, ElementsSidebarDuration)
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
@@ -5815,6 +5819,13 @@ public partial class MainWindow : Window
 
         double shrinkFrom = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
         sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+
+        var fadeOut = new DoubleAnimation(1, 0, ElementsSidebarDuration)
+        {
+            FillBehavior = FillBehavior.HoldEnd,
+        };
+        ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+
         var shrink = new DoubleAnimation(shrinkFrom, 0, ElementsSidebarDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
@@ -5828,6 +5839,30 @@ public partial class MainWindow : Window
             sidebar.Visibility = Visibility.Collapsed;
         };
         sidebar.BeginAnimation(FrameworkElement.WidthProperty, shrink);
+    }
+
+    /// <summary>
+    /// Send the Elements panel back to the category tiles. Called when the
+    /// panel closes, so reopening it always starts from the categories.
+    /// </summary>
+    private void ResetElementsPanelViews()
+    {
+        ElementsCategoriesView.Visibility = Visibility.Visible;
+        ElementsIconifyView.Visibility = Visibility.Collapsed;
+        ElementsPhotosView.Visibility = Visibility.Collapsed;
+        IconifySearchBox.Text = string.Empty;
+        PhotosSearchBox.Text = string.Empty;
+
+        // Drop the loaded results so the next category starts from scratch.
+        _iconGeneration++;
+        _iconItems.Clear();
+        IconifyItemsList.ItemsSource = null;
+        _iconQuery = "";
+        _iconHasMore = false;
+        _iconFooterMessage = "";
+        UpdateIconifyFooter();
+
+        ResetPhotoResults("Type a search word to browse the photo library.");
     }
 
     private void UpdateToolUI()
@@ -5859,6 +5894,7 @@ public partial class MainWindow : Window
         AttrLinePanel.Visibility = _tool == ActiveTool.Line ? Visibility.Visible : Visibility.Collapsed;
         AttrElementsPanel.Visibility = _tool == ActiveTool.Elements ? Visibility.Visible : Visibility.Collapsed;
         AnimateElementsSidebar(_tool == ActiveTool.Elements);
+        if (_tool != ActiveTool.Elements) ResetElementsPanelViews();
         bool hint = _tool is not (ActiveTool.Pick or ActiveTool.Slice or ActiveTool.Erase
             or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Line or ActiveTool.Paintbrush or ActiveTool.Elements);
         AttrHint.Visibility = hint ? Visibility.Visible : Visibility.Collapsed;
@@ -8207,7 +8243,6 @@ public partial class MainWindow : Window
     // ELEMENTS / ICONIFY TOOL
     // =========================================================================
 
-    private DispatcherTimer? _iconifySearchDebounce;
     private CancellationTokenSource? _iconifyCts;
     private ObservableCollection<IconItem> _iconItems = new();
     private string _iconQuery = "";
@@ -8215,6 +8250,7 @@ public partial class MainWindow : Window
     private bool _iconHasMore;
     private bool _iconLoadingMore;
     private string _iconFooterMessage = "";
+    private int _iconGeneration;  // bumped per search; stale paging replies are dropped
 
     private void ToolElements_Click(object sender, RoutedEventArgs e)
     {
@@ -8248,26 +8284,24 @@ public partial class MainWindow : Window
 
     private void IconifySearch_TextChanged(object sender, TextChangedEventArgs e)
     {
+        if (IconifySearchPlaceholder == null) return; // raised while the XAML loads
         string query = IconifySearchBox.Text;
         IconifySearchPlaceholder.Visibility = string.IsNullOrEmpty(query) ? Visibility.Visible : Visibility.Collapsed;
         IconifySearchClearBtn.Visibility = string.IsNullOrEmpty(query) ? Visibility.Collapsed : Visibility.Visible;
+    }
 
-        if (_iconifySearchDebounce == null)
-        {
-            _iconifySearchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
-            _iconifySearchDebounce.Tick += (_, _) =>
-            {
-                _iconifySearchDebounce.Stop();
-                LoadIconifyAsync(IconifySearchBox.Text);
-            };
-        }
-        _iconifySearchDebounce.Stop();
-        _iconifySearchDebounce.Start();
+    /// <summary>Searching runs on Enter only — one request per search, never per keystroke.</summary>
+    private void IconifySearch_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        LoadIconifyAsync(IconifySearchBox.Text);
     }
 
     private void IconifySearchClear_Click(object sender, RoutedEventArgs e)
     {
         IconifySearchBox.Text = string.Empty;
+        LoadIconifyAsync(string.Empty); // back to the popular icons
         IconifySearchBox.Focus();
     }
 
@@ -8285,15 +8319,26 @@ public partial class MainWindow : Window
 
     private async void LoadIconifyAsync(string query)
     {
+        // The same search again costs nothing: the icons are already listed.
+        if (_iconQuery == query && _iconItems.Count > 0)
+        {
+            IconifyItemsList.ItemsSource = _iconItems;
+            UpdateIconifyFooter();
+            return;
+        }
+
         _iconifyCts?.Cancel();
         _iconifyCts?.Dispose();
         _iconifyCts = new CancellationTokenSource();
         var ct = _iconifyCts.Token;
 
+        // Bumped for every new search: a paging request that is still in flight
+        // must not append its icons to the new result list.
+        int generation = ++_iconGeneration;
+
         _iconQuery = query;
         _iconStart = 0;
         _iconHasMore = false;
-        _iconLoadingMore = false;
         _iconFooterMessage = "";
         _iconItems.Clear();
 
@@ -8305,7 +8350,7 @@ public partial class MainWindow : Window
         try
         {
             var result = await IconifyService.SearchIconsAsync(query, 0, ct);
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested || generation != _iconGeneration) return;
 
             _iconHasMore = result.HasMore;
             _iconStart += result.RawCount;
@@ -8329,14 +8374,15 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested || generation != _iconGeneration) return;
             IconifyErrorPanel.Visibility = Visibility.Visible;
             IconifyDebugText.Text = $"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}";
             StatusText.Text = "Failed to load icons from Iconify library.";
+            UpdateIconifyFooter();
         }
         finally
         {
-            if (!ct.IsCancellationRequested)
+            if (!ct.IsCancellationRequested && generation == _iconGeneration)
             {
                 IconifyLoadingBar.Visibility = Visibility.Collapsed;
             }
@@ -8354,6 +8400,9 @@ public partial class MainWindow : Window
         }
         if (string.IsNullOrWhiteSpace(_iconQuery)) return;
 
+        int generation = _iconGeneration;
+        var target = _iconItems;
+
         _iconLoadingMore = true;
         IconifyLoadingBar.Visibility = Visibility.Visible;
         IconifyListStatus.Text = "Loading more icons…";
@@ -8362,21 +8411,26 @@ public partial class MainWindow : Window
         try
         {
             var result = await IconifyService.SearchIconsAsync(_iconQuery, _iconStart, CancellationToken.None);
+            if (generation != _iconGeneration) return; // a new search took over
             _iconHasMore = result.HasMore;
             _iconStart += result.RawCount;
-            foreach (var item in result.Items) _iconItems.Add(item);
-            StatusText.Text = $"Found {_iconItems.Count} icons for '{_iconQuery}'.";
+            foreach (var item in result.Items) target.Add(item);
+            StatusText.Text = $"Found {target.Count} icons for '{_iconQuery}'.";
         }
         catch (Exception ex)
         {
+            if (generation != _iconGeneration) return;
             _iconFooterMessage = "Could not load more icons: " + ex.Message;
             StatusText.Text = _iconFooterMessage;
         }
         finally
         {
             _iconLoadingMore = false;
-            IconifyLoadingBar.Visibility = Visibility.Collapsed;
-            UpdateIconifyFooter();
+            if (generation == _iconGeneration)
+            {
+                IconifyLoadingBar.Visibility = Visibility.Collapsed;
+                UpdateIconifyFooter();
+            }
         }
     }
 
@@ -8490,6 +8544,8 @@ public partial class MainWindow : Window
     private bool _photosHasMore;
     private bool _photosLoadingMore;
     private string _photosFooterMessage = "";
+    private int _photosGeneration; // bumped per search; stale paging replies are dropped
+    private string _photosLoadedOrientation = "all";
 
     private void CategoryPhotos_Click(object sender, RoutedEventArgs e)
     {
@@ -8570,31 +8626,21 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            _photoItems.Clear();
-            PhotosItemsList.ItemsSource = _photoItems;
-            PhotosEmptyHint.Text = "Type a search word to browse the photo library.";
-            PhotosEmptyHint.Visibility = Visibility.Visible;
-            PhotosErrorPanel.Visibility = Visibility.Collapsed;
+            ResetPhotoResults("Type a search word to browse the photo library.");
             return;
         }
 
         if (query.Trim().Length < 2)
         {
             // Short terms match almost everything and only burn API quota.
-            _photoItems.Clear();
-            PhotosItemsList.ItemsSource = _photoItems;
-            PhotosEmptyHint.Text = "Type at least 2 characters to search.";
-            PhotosEmptyHint.Visibility = Visibility.Visible;
-            PhotosErrorPanel.Visibility = Visibility.Collapsed;
+            ResetPhotoResults("Type at least 2 characters to search.");
             return;
         }
 
         string key = _settings.PixabayApiKey;
         if (string.IsNullOrWhiteSpace(key))
         {
-            _photoItems.Clear();
-            PhotosItemsList.ItemsSource = _photoItems;
-            PhotosEmptyHint.Visibility = Visibility.Collapsed;
+            ResetPhotoResults(null);
             ShowPhotosMessage(
                 "API key needed",
                 "Add your free Pixabay API key in Settings → Integrations to search photos.",
@@ -8619,11 +8665,23 @@ public partial class MainWindow : Window
         _photosCts = new CancellationTokenSource();
         var ct = _photosCts.Token;
 
+        // The same search again costs nothing: the results are already here.
+        if (_photosQuery == query && _photosLoadedOrientation == _photosOrientation && _photoItems.Count > 0)
+        {
+            PhotosItemsList.ItemsSource = _photoItems;
+            PhotosEmptyHint.Visibility = Visibility.Collapsed;
+            UpdatePhotosFooter();
+            return;
+        }
+
+        // Bumped for every new search: a paging request that is still in flight
+        // must not append its photos to the new result list.
+        int generation = ++_photosGeneration;
+
         _photosQuery = query;
         _photosPage = 0;
         _photosTotalHits = 0;
         _photosHasMore = false;
-        _photosLoadingMore = false;
         _photosFooterMessage = "";
         _photoItems.Clear();
 
@@ -8635,13 +8693,14 @@ public partial class MainWindow : Window
         try
         {
             var result = await PixabayService.SearchAsync(key, query, _photosOrientation, 1, ct);
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested || generation != _photosGeneration) return;
 
             _photosPage = result.Page;
             _photosHasMore = result.HasMore;
             _photosTotalHits = result.TotalHits;
             _photosRateLimit = result.RateLimitLimit;
             _photosRateRemaining = result.RateLimitRemaining;
+            _photosLoadedOrientation = _photosOrientation;
             _photoItems = new ObservableCollection<PhotoItem>(result.Items);
             PhotosItemsList.ItemsSource = _photoItems;
             PhotosEmptyHint.Visibility = _photoItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -8661,7 +8720,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested || generation != _photosGeneration) return;
             bool limited = ex is PixabayRateLimitException;
             if (limited)
             {
@@ -8677,10 +8736,11 @@ public partial class MainWindow : Window
             StatusText.Text = limited
                 ? "Photo library request limit reached — try again in a minute."
                 : "Failed to load photos from the Pixabay library.";
+            UpdatePhotosFooter();
         }
         finally
         {
-            if (!ct.IsCancellationRequested)
+            if (!ct.IsCancellationRequested && generation == _photosGeneration)
             {
                 PhotosLoadingBar.Visibility = Visibility.Collapsed;
             }
@@ -8701,16 +8761,21 @@ public partial class MainWindow : Window
         if (DateTime.UtcNow < _photosBlockedUntil)
         {
             int wait = (int)Math.Ceiling((_photosBlockedUntil - DateTime.UtcNow).TotalSeconds);
-            PhotosListStatus.Text = $"Request limit reached — try again in {wait}s";
+            _photosFooterMessage = $"Request limit reached — try again in {wait}s";
+            UpdatePhotosFooter();
             return;
         }
 
         string key = _settings.PixabayApiKey;
         if (string.IsNullOrWhiteSpace(key))
         {
-            PhotosListStatus.Text = "Add your Pixabay API key in Settings → Integrations.";
+            _photosFooterMessage = "Add your Pixabay API key in Settings → Integrations.";
+            UpdatePhotosFooter();
             return;
         }
+
+        int generation = _photosGeneration;
+        var target = _photoItems;
 
         _photosLoadingMore = true;
         PhotosLoadingBar.Visibility = Visibility.Visible;
@@ -8721,31 +8786,65 @@ public partial class MainWindow : Window
         {
             var result = await PixabayService.SearchAsync(
                 key, _photosQuery, _photosOrientation, _photosPage + 1, CancellationToken.None);
+            if (generation != _photosGeneration) return; // a new search took over
             _photosPage = result.Page;
             _photosHasMore = result.HasMore;
             _photosTotalHits = result.TotalHits;
             _photosRateLimit = result.RateLimitLimit;
             _photosRateRemaining = result.RateLimitRemaining;
-            foreach (var item in result.Items) _photoItems.Add(item);
-            StatusText.Text = $"Found {_photoItems.Count} of {result.TotalHits} photos for '{_photosQuery}'.";
+            PhotosErrorPanel.Visibility = Visibility.Collapsed;
+            foreach (var item in result.Items) target.Add(item);
+            StatusText.Text = $"Found {target.Count} of {result.TotalHits} photos for '{_photosQuery}'.";
         }
         catch (PixabayRateLimitException ex)
         {
+            if (generation != _photosGeneration) return;
             _photosBlockedUntil = DateTime.UtcNow.AddSeconds(Math.Max(15, ex.RetryAfterSeconds));
             _photosFooterMessage = $"Request limit reached — try again in {Math.Max(15, ex.RetryAfterSeconds)}s";
             StatusText.Text = "Photo library request limit reached — try again in a minute.";
         }
         catch (Exception ex)
         {
+            if (generation != _photosGeneration) return;
             _photosFooterMessage = "Could not load more: " + ex.Message;
             StatusText.Text = _photosFooterMessage;
         }
         finally
         {
             _photosLoadingMore = false;
-            PhotosLoadingBar.Visibility = Visibility.Collapsed;
-            UpdatePhotosFooter();
+            if (generation == _photosGeneration)
+            {
+                PhotosLoadingBar.Visibility = Visibility.Collapsed;
+                UpdatePhotosFooter();
+            }
         }
+    }
+
+    /// <summary>Clear the photo list and every bit of paging state.</summary>
+    private void ResetPhotoResults(string? hint)
+    {
+        _photosGeneration++; // drop replies that are still in flight
+        _photosQuery = "";
+        _photosPage = 0;
+        _photosTotalHits = 0;
+        _photosHasMore = false;
+        _photosRateLimit = 0;
+        _photosRateRemaining = 0;
+        _photosFooterMessage = "";
+        _photoItems.Clear();
+        PhotosItemsList.ItemsSource = _photoItems;
+        if (hint != null)
+        {
+            PhotosEmptyHint.Text = hint;
+            PhotosEmptyHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            PhotosEmptyHint.Visibility = Visibility.Collapsed;
+        }
+        PhotosErrorPanel.Visibility = Visibility.Collapsed;
+        PhotosLoadMoreBtn.Visibility = Visibility.Collapsed;
+        UpdatePhotosFooter();
     }
 
     /// <summary>Footer text + manual paging button for the photo list.</summary>
@@ -8754,6 +8853,7 @@ public partial class MainWindow : Window
         if (_photoItems.Count == 0 && _photosFooterMessage.Length == 0)
         {
             PhotosListStatus.Text = "";
+            PhotosListStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x8E, 0xA0, 0xB4));
             PhotosQuotaText.Text = "";
             PhotosLoadMoreBtn.Visibility = Visibility.Collapsed;
             return;
@@ -8793,11 +8893,20 @@ public partial class MainWindow : Window
         if (sender is not FrameworkElement fe || fe.Tag is not PhotoItem item) return;
         if (string.IsNullOrWhiteSpace(item.LargeUrl) && string.IsNullOrWhiteSpace(item.WebUrl)) return;
 
+        // The download takes a moment: remember the project it belongs to, so a
+        // tab switch in the meantime cannot place it in the wrong canvas.
+        var target = _doc;
+
         PhotosLoadingBar.Visibility = Visibility.Visible;
         try
         {
             var bmp = await PixabayService.DownloadBestAsync(item);
             if (bmp == null) return;
+            if (!ReferenceEquals(target, _doc))
+            {
+                StatusText.Text = "Photo downloaded, but the active canvas changed — click the photo again to place it.";
+                return;
+            }
             PlacePhoto(bmp, item);
         }
         catch (Exception ex)

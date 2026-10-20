@@ -326,12 +326,14 @@ saved as editable elements in `.yimpact`.
 
 Open the **Elements** tool (`I`) to browse ready-made shapes, icons and library
 components. A secondary sidebar slides open beside the tool rail, pushing the
-canvas area in step so your work remains centered and visible.
+canvas area in step so your work remains centered and visible. Closing the
+panel and opening it again always starts from the category tiles.
 
 - **Categories** — 2-column tiles categorize available items: the **Iconify
   Icons** library and the **Pixabay Photos** library.
-- **Search & Insert** — Quick search box with live results and popular icon
-  suggestions. Click any icon to place it onto the center of the canvas.
+- **Search & Insert** — Type a search term and press **Enter** to search; the
+  box shows a blinking caret and a highlighted border while it has focus.
+  Click any icon to place it onto the center of the canvas.
 - **More results** — Both libraries load the next page automatically when you
   scroll to the bottom of the list, and each list has a **Load more** button as
   a manual fallback. The line under the list always shows how many results are
@@ -365,7 +367,8 @@ canvas as regular image objects.
 - Only the search itself costs API requests: the photo thumbnails are loaded
   straight from the image CDN. Each search is one request, and every extra
   page of results is one more. Results are cached for a day (on disk as well as
-  in memory), so repeating a search costs nothing.
+  in memory), so repeating a search costs nothing — and the cache is keyed by
+  the API key, so switching keys never mixes results.
 - Photos are embedded in the `.yimpact` file like any other image, so projects
   stay self-contained, and safe search is always on.
 

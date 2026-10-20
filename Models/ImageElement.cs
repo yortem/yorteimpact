@@ -61,7 +61,9 @@ public class ImageElement : DesignElement
     /// <summary>Rebuild the adjusted raster after photo settings or the base image changed.</summary>
     public void RefreshPhotoPreview()
     {
-        _displaySource = _adjustments.IsDefault || _source is not BitmapSource bmp
+        // The intensity alone changes nothing, so there is no point in keeping
+        // a second copy of the raster in memory.
+        _displaySource = !_adjustments.HasAdjustments || _source is not BitmapSource bmp
             ? null
             : PhotoAdjustmentService.Render(bmp, _adjustments);
         RebuildBrush();

@@ -2304,8 +2304,8 @@
                       Fill="{StaticResource MutedBrush}" Width="15" Height="15" Stretch="Uniform"
                       VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <TextBox Grid.Column="1" x:Name="IconifySearchBox" Style="{StaticResource SearchField}"
-                         TextChanged="IconifySearch_TextChanged"/>
-                <TextBlock Grid.Column="1" x:Name="IconifySearchPlaceholder" Text="Search icons (arrow, star)..."
+                         TextChanged="IconifySearch_TextChanged" KeyDown="IconifySearch_KeyDown"/>
+                <TextBlock Grid.Column="1" x:Name="IconifySearchPlaceholder" Text="Search icons, then press Enter..."
                            Foreground="#607184" FontSize="13" VerticalAlignment="Center" Margin="2,0,0,0"
                            IsHitTestVisible="False"/>
                 <Button Grid.Column="2" x:Name="IconifySearchClearBtn" Style="{StaticResource TopBtn}"
@@ -2366,27 +2366,25 @@
               <ItemsControl x:Name="IconifyItemsList">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal"/>
+                    <!-- Four icons per row, filling the sidebar width. -->
+                    <UniformGrid Columns="4"/>
                   </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <Button Style="{StaticResource TopBtn}" Width="60" Height="60" Margin="2" Padding="4"
+                    <Button Style="{StaticResource TopBtn}" Margin="2" Padding="3" Height="48"
                             Click="IconifyTile_Click" Tag="{Binding}"
                             ToolTip="{Binding Id}"
                             Background="#111A27" BorderBrush="#1A2636" BorderThickness="1">
-                      <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Grid.RowDefinitions>
-                          <RowDefinition Height="32"/>
-                          <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Path Grid.Row="0" Data="{Binding Geometry}" Fill="#E6EEF6"
+                      <StackPanel VerticalAlignment="Center">
+                        <Path Data="{Binding Geometry}" Fill="#E6EEF6"
                               Width="24" Height="24" Stretch="Uniform"
                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="1" Text="{Binding DisplayName}" FontSize="9"
+                        <TextBlock Text="{Binding DisplayName}" FontSize="8.5"
                                    Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"
-                                   MaxWidth="52" TextAlignment="Center" Margin="0,2,0,0"/>
-                      </Grid>
+                                   MaxWidth="46" TextAlignment="Center" Margin="0,2,0,0"
+                                   HorizontalAlignment="Center"/>
+                      </StackPanel>
                     </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -2395,10 +2393,14 @@
 
             <!-- Paging status -->
             <Grid Grid.Row="5" Margin="0,8,0,0">
-              <TextBlock x:Name="IconifyListStatus" Text="" FontSize="9.5"
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock x:Name="IconifyListStatus" Grid.Column="0" Text="" FontSize="9.5"
                          Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"
-                         TextTrimming="CharacterEllipsis" MaxWidth="180" HorizontalAlignment="Left"/>
-              <Button x:Name="IconifyLoadMoreBtn" Style="{StaticResource TopBtn}" HorizontalAlignment="Right"
+                         TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+              <Button x:Name="IconifyLoadMoreBtn" Grid.Column="1" Style="{StaticResource TopBtn}"
                       Padding="8,3" Visibility="Collapsed" Click="IconifyLoadMore_Click"
                       ToolTip="Load more icons">
                 <TextBlock Text="Load more" FontSize="10.5" Foreground="{StaticResource AccentBrush}"/>
@@ -2597,14 +2599,18 @@
 
             <!-- Paging status -->
             <Grid Grid.Row="6" Margin="0,8,0,0">
-              <StackPanel VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
                 <TextBlock x:Name="PhotosListStatus" Text="" FontSize="9.5"
                            Foreground="{StaticResource MutedBrush}"
                            TextTrimming="CharacterEllipsis"/>
                 <TextBlock x:Name="PhotosQuotaText" Text="" FontSize="9" Foreground="#5A6B80"
                            TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
               </StackPanel>
-              <Button x:Name="PhotosLoadMoreBtn" Style="{StaticResource TopBtn}" HorizontalAlignment="Right"
+              <Button x:Name="PhotosLoadMoreBtn" Grid.Column="1" Style="{StaticResource TopBtn}"
                       Padding="8,3" Visibility="Collapsed" Click="PhotosLoadMore_Click"
                       ToolTip="Load the next page of photos">
                 <TextBlock Text="Load more" FontSize="10.5" Foreground="{StaticResource AccentBrush}"/>
