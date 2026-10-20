@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -80,6 +81,11 @@ public partial class MainWindow : Window
     private const double MinSize = 1;
     private const double MinZoom = 0.05;
     private const double MaxZoom = 8.0;
+
+    /// <summary>Radius (screen px) in which a guide grabs the object.</summary>
+    private const double SnapCapturePx = 14;
+    /// <summary>Radius (screen px) in which a grabbed guide lets the object go.</summary>
+    private const double SnapReleasePx = 26;
 
     /// <summary>Width of the Elements panel (must match the XAML).</summary>
     private const double ElementsSidebarWidth = 280;
@@ -1197,6 +1203,14 @@ public partial class MainWindow : Window
 
     private DesignElement? _watched;
 
+    /// <summary>Guide the dragged object is currently glued to (NaN = free).</summary>
+    private double _snapLockX = double.NaN;
+    private double _snapLockY = double.NaN;
+    private int _snapLockXFeature; // 0 = leading edge, 1 = middle, 2 = trailing edge
+    private int _snapLockYFeature; // 0 = top, 1 = middle, 2 = bottom
+    private SnapAxis _snapResizeX;
+    private SnapAxis _snapResizeY;
+
     /// <summary>
     /// Rebuild the selection outline. While dragging, images get the cheap
     /// bounding outline (no pixel re-trace per mousemove); the exact contour
@@ -1302,29 +1316,33 @@ public partial class MainWindow : Window
         var hit = PickTopmost(Mouse.GetPosition(Pasteboard));
         if (hit != null && !_doc.SelectedElements.Contains(hit)) _doc.Select(hit);
 
+        // Actions that do not apply right now are removed from the menu
+        // instead of showing up as dead entries.
         bool onObject = hit != null;
-        var objectVisibility = onObject ? Visibility.Visible : Visibility.Collapsed;
-        var canvasVisibility = onObject ? Visibility.Collapsed : Visibility.Visible;
+        bool hasSelection = _doc.SelectionCount > 0;
+        var fillShape = _doc.Selected as ShapeElement;
 
-        SaveElementTransparentMenuItem.Visibility = objectVisibility;
-        ElementMenuSeparator.Visibility = objectVisibility;
+        SaveElementTransparentMenuItem.Visibility = onObject ? Visibility.Visible : Visibility.Collapsed;
         MergeMenuItem.Visibility = _doc.SelectionCount >= 2 ? Visibility.Visible : Visibility.Collapsed;
-        CopyStyleMenuItem.Visibility = objectVisibility;
-        PasteStyleMenuItem.Visibility = objectVisibility;
+        CopyStyleMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        PasteStyleMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
         PasteStyleMenuItem.IsEnabled = _styleClipboard != null;
 
-        var fillShape = _doc.Selected as ShapeElement;
-        ReplaceBackgroundMenuItem.Visibility = onObject && fillShape != null
-            ? Visibility.Visible : Visibility.Collapsed;
-        if (onObject && fillShape != null)
+        ReplaceBackgroundMenuItem.Visibility = fillShape != null ? Visibility.Visible : Visibility.Collapsed;
+        if (fillShape != null)
         {
             RebuildProjectImageMenu();
+            BackgroundFromProjectMenuItem.IsEnabled =
+                BackgroundFromProjectMenuItem.Items[0] is MenuItem first && first.IsEnabled;
+            ReplaceBackgroundFromFileMenuItem.IsEnabled = true;
             RemoveBackgroundImageMenuItem.IsEnabled = fillShape.FillImage != null;
         }
 
-        ProjectSettingsMenuItem.Visibility = canvasVisibility;
-        CanvasBgColorMenuItem.Visibility = canvasVisibility;
-        CanvasTransparentMenuItem.Visibility = canvasVisibility;
+        // The separator only makes sense when object actions are listed.
+        ElementMenuSeparator.Visibility = onObject || hasSelection
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        CanvasTransparentMenuItem.IsChecked = _doc.CanvasTransparent;
     }
 
     private DesignElement? _styleClipboard;
@@ -1980,6 +1998,7 @@ public partial class MainWindow : Window
         _drag = DragMode.None;
         _activeHandle = HandleKind.None;
         _moveUndoPending = false;
+        ResetSnapLock();
         HideSnapGuides();
         if (Pasteboard.IsMouseCaptured) Pasteboard.ReleaseMouseCapture();
         if (_doc.Selected != null) RefreshContour(); // exact ants back after the drag
@@ -1999,6 +2018,7 @@ public partial class MainWindow : Window
         _drag = DragMode.Move;
         _dragStartCanvas = pos;
         _origX = el.X; _origY = el.Y;
+        ResetSnapLock();
         Pasteboard.CaptureMouse();
         Cursor = Cursors.SizeAll;
     }
@@ -2017,6 +2037,7 @@ public partial class MainWindow : Window
         }
         else
         {
+            ResetSnapLock();
             HideSnapGuides();
         }
 
@@ -2037,103 +2058,149 @@ public partial class MainWindow : Window
     /// <summary>
     /// Shift-drag snapping: canvas edges/centers, other elements' edges/centers
     /// and repeated gaps between elements (grid-like spacing).
+    /// A guide grabs the object inside <see cref="SnapCapturePx"/> and keeps it
+    /// until the pointer leaves <see cref="SnapReleasePx"/> — the wider release
+    /// radius is what makes the snap feel firm instead of flickering.
     /// </summary>
     private (double X, double Y) ApplySnap(DesignElement moving, double x, double y)
     {
-        double tolerance = 8 / Math.Max(0.25, _zoom);
-        double left = x, right = x + moving.Width, cx = x + moving.Width / 2;
-        double top = y, bottom = y + moving.Height, cy = y + moving.Height / 2;
+        double capture = SnapCapturePx / Math.Max(0.25, _zoom);
+        double release = SnapReleasePx / Math.Max(0.25, _zoom);
 
         double bestX = double.NaN, guideX = 0;
+        int featureX = 0;
         double bestY = double.NaN, guideY = 0;
+        int featureY = 0;
 
-        void ConsiderX(double target)
+        // 0 = leading edge/center, 1 = middle, 2 = trailing edge/bottom.
+        double FeatureX(int f) => f == 0 ? x : f == 1 ? x + moving.Width / 2 : x + moving.Width;
+        double FeatureY(int f) => f == 0 ? y : f == 1 ? y + moving.Height / 2 : y + moving.Height;
+
+        void ConsiderX(double target, int feature)
         {
-            foreach (double feature in new[] { left, cx, right })
+            double delta = target - FeatureX(feature);
+            if (Math.Abs(delta) <= capture &&
+                (double.IsNaN(bestX) || Math.Abs(delta) < Math.Abs(bestX)))
             {
-                double delta = target - feature;
-                if (Math.Abs(delta) <= tolerance &&
-                    (double.IsNaN(bestX) || Math.Abs(delta) < Math.Abs(bestX)))
+                bestX = delta;
+                guideX = target;
+                featureX = feature;
+            }
+        }
+
+        void ConsiderY(double target, int feature)
+        {
+            double delta = target - FeatureY(feature);
+            if (Math.Abs(delta) <= capture &&
+                (double.IsNaN(bestY) || Math.Abs(delta) < Math.Abs(bestY)))
+            {
+                bestY = delta;
+                guideY = target;
+                featureY = feature;
+            }
+        }
+
+        // An active lock wins over any closer guide: the object stays glued
+        // to the line it caught until it is dragged clearly away from it.
+        double? lockX = null, lockY = null;
+        if (!double.IsNaN(_snapLockX))
+        {
+            double delta = _snapLockX - FeatureX(_snapLockXFeature);
+            if (Math.Abs(delta) <= release)
+            {
+                lockX = delta;
+                bestX = delta;
+                guideX = _snapLockX;
+                featureX = _snapLockXFeature;
+            }
+        }
+        if (!double.IsNaN(_snapLockY))
+        {
+            double delta = _snapLockY - FeatureY(_snapLockYFeature);
+            if (Math.Abs(delta) <= release)
+            {
+                lockY = delta;
+                bestY = delta;
+                guideY = _snapLockY;
+                featureY = _snapLockYFeature;
+            }
+        }
+
+        {
+            var art = _doc.ArtboardRect;
+            ConsiderX(art.Left, 0);
+            ConsiderX(art.Left + art.Width / 2, 1);
+            ConsiderX(art.Right, 2);
+            ConsiderY(art.Top, 0);
+            ConsiderY(art.Top + art.Height / 2, 1);
+            ConsiderY(art.Bottom, 2);
+
+            if (GuideOverlay.Visibility == Visibility.Visible)
+            {
+                foreach (double guide in GuideOverlay.GetVerticalLines())
+                    ConsiderX(guide, 0);
+                foreach (double guide in GuideOverlay.GetHorizontalLines())
+                    ConsiderY(guide, 0);
+            }
+
+            var others = _doc.Elements
+                .Where(e => !ReferenceEquals(e, moving) && !e.IsBackgroundLayer
+                            && !_moveOrigins.ContainsKey(e))
+                .ToList();
+            foreach (var other in others)
+            {
+                ConsiderX(other.X, 0);
+                ConsiderX(other.X + other.Width / 2, 1);
+                ConsiderX(other.X + other.Width, 2);
+                ConsiderY(other.Y, 0);
+                ConsiderY(other.Y + other.Height / 2, 1);
+                ConsiderY(other.Y + other.Height, 2);
+            }
+
+            // Existing gaps repeated to the side create grid-like snap lines.
+            var byX = others.OrderBy(e => e.X).ToList();
+            for (int i = 0; i < byX.Count; i++)
+            {
+                for (int j = i + 1; j < byX.Count; j++)
                 {
-                    bestX = delta;
-                    guideX = target;
+                    var a = byX[i];
+                    var b = byX[j];
+                    if (a.Y >= b.Y + b.Height || b.Y >= a.Y + a.Height) continue; // no vertical overlap
+                    double gap = b.X - (a.X + a.Width);
+                    if (gap <= 0.5) continue;
+                    ConsiderX(a.X + a.Width + gap, 0);
+                    ConsiderX(b.X - gap, 0);
+                }
+            }
+
+            var byY = others.OrderBy(e => e.Y).ToList();
+            for (int i = 0; i < byY.Count; i++)
+            {
+                for (int j = i + 1; j < byY.Count; j++)
+                {
+                    var a = byY[i];
+                    var b = byY[j];
+                    if (a.X >= b.X + b.Width || b.X >= a.X + a.Width) continue; // no horizontal overlap
+                    double gap = b.Y - (a.Y + a.Height);
+                    if (gap <= 0.5) continue;
+                    ConsiderY(a.Y + a.Height + gap, 0);
+                    ConsiderY(b.Y - gap, 0);
                 }
             }
         }
 
-        void ConsiderY(double target)
+        // The lock overrides the search result for its axis.
+        if (lockX is double lx)
         {
-            foreach (double feature in new[] { top, cy, bottom })
-            {
-                double delta = target - feature;
-                if (Math.Abs(delta) <= tolerance &&
-                    (double.IsNaN(bestY) || Math.Abs(delta) < Math.Abs(bestY)))
-                {
-                    bestY = delta;
-                    guideY = target;
-                }
-            }
+            bestX = lx;
+            guideX = _snapLockX;
+            featureX = _snapLockXFeature;
         }
-
-        var art = _doc.ArtboardRect;
-        ConsiderX(art.Left);
-        ConsiderX(art.Left + art.Width / 2);
-        ConsiderX(art.Right);
-        ConsiderY(art.Top);
-        ConsiderY(art.Top + art.Height / 2);
-        ConsiderY(art.Bottom);
-
-        if (GuideOverlay.Visibility == Visibility.Visible)
+        if (lockY is double ly)
         {
-            foreach (double guide in GuideOverlay.GetVerticalLines())
-                ConsiderX(guide);
-            foreach (double guide in GuideOverlay.GetHorizontalLines())
-                ConsiderY(guide);
-        }
-
-        var others = _doc.Elements
-            .Where(e => !ReferenceEquals(e, moving) && !e.IsBackgroundLayer
-                        && !_moveOrigins.ContainsKey(e))
-            .ToList();
-        foreach (var other in others)
-        {
-            ConsiderX(other.X);
-            ConsiderX(other.X + other.Width / 2);
-            ConsiderX(other.X + other.Width);
-            ConsiderY(other.Y);
-            ConsiderY(other.Y + other.Height / 2);
-            ConsiderY(other.Y + other.Height);
-        }
-
-        // Existing gaps repeated to the side create grid-like snap lines.
-        var byX = others.OrderBy(e => e.X).ToList();
-        for (int i = 0; i < byX.Count; i++)
-        {
-            for (int j = i + 1; j < byX.Count; j++)
-            {
-                var a = byX[i];
-                var b = byX[j];
-                if (a.Y >= b.Y + b.Height || b.Y >= a.Y + a.Height) continue; // no vertical overlap
-                double gap = b.X - (a.X + a.Width);
-                if (gap <= 0.5) continue;
-                ConsiderX(a.X + a.Width + gap);
-                ConsiderX(b.X - gap);
-            }
-        }
-
-        var byY = others.OrderBy(e => e.Y).ToList();
-        for (int i = 0; i < byY.Count; i++)
-        {
-            for (int j = i + 1; j < byY.Count; j++)
-            {
-                var a = byY[i];
-                var b = byY[j];
-                if (a.X >= b.X + b.Width || b.X >= a.X + a.Width) continue; // no horizontal overlap
-                double gap = b.Y - (a.Y + a.Height);
-                if (gap <= 0.5) continue;
-                ConsiderY(a.Y + a.Height + gap);
-                ConsiderY(b.Y - gap);
-            }
+            bestY = ly;
+            guideY = _snapLockY;
+            featureY = _snapLockYFeature;
         }
 
         if (!double.IsNaN(bestX))
@@ -2156,7 +2223,21 @@ public partial class MainWindow : Window
             SnapGuideH.Visibility = Visibility.Collapsed;
         }
 
+        _snapLockX = double.IsNaN(bestX) ? double.NaN : guideX;
+        _snapLockY = double.IsNaN(bestY) ? double.NaN : guideY;
+        _snapLockXFeature = featureX;
+        _snapLockYFeature = featureY;
+
         return (x, y);
+    }
+
+    /// <summary>Forget the active snap locks (drag ended or the modifier was released).</summary>
+    private void ResetSnapLock()
+    {
+        _snapLockX = double.NaN;
+        _snapLockY = double.NaN;
+        _snapResizeX.Reset();
+        _snapResizeY.Reset();
     }
 
     private void ShowSnapX(double x)
@@ -2328,23 +2409,48 @@ public partial class MainWindow : Window
 
     private Point SnapResizePointer(Point pos, HandleKind handle)
     {
-        double tolerance = 8 / Math.Max(0.25, _zoom);
+        double capture = SnapCapturePx / Math.Max(0.25, _zoom);
+        double release = SnapReleasePx / Math.Max(0.25, _zoom);
         bool horizontalEdge = handle is HandleKind.E or HandleKind.W or
             HandleKind.NE or HandleKind.SE or HandleKind.NW or HandleKind.SW;
         bool verticalEdge = handle is HandleKind.N or HandleKind.S or
             HandleKind.NE or HandleKind.SE or HandleKind.NW or HandleKind.SW;
 
         double? snapX = horizontalEdge
-            ? NearestGuide(GuideOverlay.GetVerticalLines(), pos.X, tolerance)
+            ? _snapResizeX.Lock(pos.X, GuideOverlay.GetVerticalLines(), capture, release)
             : null;
         double? snapY = verticalEdge
-            ? NearestGuide(GuideOverlay.GetHorizontalLines(), pos.Y, tolerance)
+            ? _snapResizeY.Lock(pos.Y, GuideOverlay.GetHorizontalLines(), capture, release)
             : null;
 
         if (snapX is double x) ShowSnapX(x); else SnapGuideV.Visibility = Visibility.Collapsed;
         if (snapY is double y) ShowSnapY(y); else SnapGuideH.Visibility = Visibility.Collapsed;
 
         return new Point(snapX ?? pos.X, snapY ?? pos.Y);
+    }
+
+    /// <summary>
+    /// One axis of a snap lock. A guide that caught the pointer keeps it until
+    /// the pointer moves clearly past it, so the edge does not flicker between
+    /// two nearby guides.
+    /// </summary>
+    private struct SnapAxis
+    {
+        private double _guide;
+
+        public SnapAxis()
+        {
+            _guide = double.NaN;
+        }
+
+        public double? Lock(double value, IEnumerable<double> guides, double capture, double release)
+        {
+            if (!double.IsNaN(_guide) && Math.Abs(_guide - value) <= release) return _guide;
+            _guide = NearestGuide(guides, value, capture) ?? double.NaN;
+            return double.IsNaN(_guide) ? null : _guide;
+        }
+
+        public void Reset() => _guide = double.NaN;
     }
 
     private static double? NearestGuide(IEnumerable<double> guides, double value, double tolerance)
@@ -2860,7 +2966,7 @@ public partial class MainWindow : Window
 
     private Point SnapLinePoint(Point point)
     {
-        double tolerance = 8 / Math.Max(0.25, _zoom);
+        double tolerance = SnapCapturePx / Math.Max(0.25, _zoom);
         var xGuides = new List<double>();
         var yGuides = new List<double>();
         var art = _doc.ArtboardRect;
@@ -4092,10 +4198,11 @@ public partial class MainWindow : Window
 
     private void Settings_Click(object sender, RoutedEventArgs e) => OpenSettings();
 
-    private void OpenSettings()
+    private void OpenSettings(bool showIntegrations = false)
     {
-        var dlg = new SettingsDialog(AppSettings.Load()) { Owner = this };
+        var dlg = new SettingsDialog(AppSettings.Load(), showIntegrations) { Owner = this };
         if (dlg.ShowDialog() != true) return;
+        _settings.PixabayApiKey = dlg.Settings.PixabayApiKey ?? "";
         StatusText.Text =
             $"Settings saved — default canvas {dlg.Settings.DefaultCanvasWidth}×{dlg.Settings.DefaultCanvasHeight} px on next launch.";
     }
@@ -6872,6 +6979,7 @@ public partial class MainWindow : Window
             PhotoGlow.SetValue(a.Glow);
             PhotoToneAmount.SetValue(a.ToneAmount);
             PhotoToneColorBox.Background = new SolidColorBrush(a.ToneColor);
+            PhotoIntensity.SetValue(a.Intensity);
 
             PhotoMetaText.Text = BuildPhotoMeta(im);
             UpdatePhotoHistogram(im.DisplaySource as BitmapSource);
@@ -7066,6 +7174,7 @@ public partial class MainWindow : Window
             nameof(PhotoAdjustments.Sharpen) => a.Sharpen,
             nameof(PhotoAdjustments.Glow) => a.Glow,
             nameof(PhotoAdjustments.ToneAmount) => a.ToneAmount,
+            nameof(PhotoAdjustments.Intensity) => a.Intensity,
             _ => double.NaN,
         };
         return !double.IsNaN(value);
@@ -7092,6 +7201,7 @@ public partial class MainWindow : Window
             case nameof(PhotoAdjustments.Sharpen): a.Sharpen = value; break;
             case nameof(PhotoAdjustments.Glow): a.Glow = value; break;
             case nameof(PhotoAdjustments.ToneAmount): a.ToneAmount = value; break;
+            case nameof(PhotoAdjustments.Intensity): a.Intensity = value; break;
         }
     }
 
@@ -8099,6 +8209,12 @@ public partial class MainWindow : Window
 
     private DispatcherTimer? _iconifySearchDebounce;
     private CancellationTokenSource? _iconifyCts;
+    private ObservableCollection<IconItem> _iconItems = new();
+    private string _iconQuery = "";
+    private int _iconStart;      // offset already consumed from the library
+    private bool _iconHasMore;
+    private bool _iconLoadingMore;
+    private string _iconFooterMessage = "";
 
     private void ToolElements_Click(object sender, RoutedEventArgs e)
     {
@@ -8117,6 +8233,7 @@ public partial class MainWindow : Window
     {
         ElementsCategoriesView.Visibility = Visibility.Collapsed;
         ElementsIconifyView.Visibility = Visibility.Visible;
+        IconifySearchBox.Focus();
         if (IconifyItemsList.ItemsSource == null)
         {
             LoadIconifyAsync(IconifySearchBox.Text);
@@ -8173,6 +8290,13 @@ public partial class MainWindow : Window
         _iconifyCts = new CancellationTokenSource();
         var ct = _iconifyCts.Token;
 
+        _iconQuery = query;
+        _iconStart = 0;
+        _iconHasMore = false;
+        _iconLoadingMore = false;
+        _iconFooterMessage = "";
+        _iconItems.Clear();
+
         IconifyLoadingBar.Visibility = Visibility.Visible;
         IconifyErrorPanel.Visibility = Visibility.Collapsed;
         IconifyDebugText.Visibility = Visibility.Collapsed;
@@ -8180,11 +8304,15 @@ public partial class MainWindow : Window
 
         try
         {
-            var items = await IconifyService.SearchIconsAsync(query, ct);
+            var result = await IconifyService.SearchIconsAsync(query, 0, ct);
             if (ct.IsCancellationRequested) return;
 
-            IconifyItemsList.ItemsSource = items;
-            if (items.Count == 0)
+            _iconHasMore = result.HasMore;
+            _iconStart += result.RawCount;
+            _iconItems = new ObservableCollection<IconItem>(result.Items);
+            IconifyItemsList.ItemsSource = _iconItems;
+            UpdateIconifyFooter();
+            if (_iconItems.Count == 0)
             {
                 StatusText.Text = $"No icons found for '{query}'.";
             }
@@ -8192,7 +8320,7 @@ public partial class MainWindow : Window
             {
                 StatusText.Text = string.IsNullOrWhiteSpace(query)
                     ? "Loaded popular icons. Click any icon to insert onto canvas."
-                    : $"Found {items.Count} icons for '{query}'.";
+                    : $"Found {_iconItems.Count} icons for '{query}'.";
             }
         }
         catch (OperationCanceledException)
@@ -8213,6 +8341,76 @@ public partial class MainWindow : Window
                 IconifyLoadingBar.Visibility = Visibility.Collapsed;
             }
         }
+    }
+
+    /// <summary>Pull the next slice of the current icon search when the list is scrolled down.</summary>
+    private async void LoadMoreIconsAsync()
+    {
+        if (_iconLoadingMore) return;
+        if (!_iconHasMore)
+        {
+            UpdateIconifyFooter();
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_iconQuery)) return;
+
+        _iconLoadingMore = true;
+        IconifyLoadingBar.Visibility = Visibility.Visible;
+        IconifyListStatus.Text = "Loading more icons…";
+        IconifyLoadMoreBtn.Visibility = Visibility.Collapsed;
+        _iconFooterMessage = "";
+        try
+        {
+            var result = await IconifyService.SearchIconsAsync(_iconQuery, _iconStart, CancellationToken.None);
+            _iconHasMore = result.HasMore;
+            _iconStart += result.RawCount;
+            foreach (var item in result.Items) _iconItems.Add(item);
+            StatusText.Text = $"Found {_iconItems.Count} icons for '{_iconQuery}'.";
+        }
+        catch (Exception ex)
+        {
+            _iconFooterMessage = "Could not load more icons: " + ex.Message;
+            StatusText.Text = _iconFooterMessage;
+        }
+        finally
+        {
+            _iconLoadingMore = false;
+            IconifyLoadingBar.Visibility = Visibility.Collapsed;
+            UpdateIconifyFooter();
+        }
+    }
+
+    /// <summary>Footer text + manual paging button for the icon list.</summary>
+    private void UpdateIconifyFooter()
+    {
+        if (_iconItems.Count == 0 && _iconFooterMessage.Length == 0)
+        {
+            IconifyListStatus.Text = "";
+            IconifyLoadMoreBtn.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (_iconFooterMessage.Length > 0)
+        {
+            IconifyListStatus.Text = _iconFooterMessage;
+            IconifyLoadMoreBtn.Visibility = _iconHasMore ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        IconifyListStatus.Text = _iconHasMore
+            ? $"{_iconItems.Count} icons loaded — scroll for more"
+            : $"{_iconItems.Count} icons loaded";
+        IconifyLoadMoreBtn.Visibility = _iconHasMore ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void IconifyLoadMore_Click(object sender, RoutedEventArgs e) => LoadMoreIconsAsync();
+
+    private void IconifyScroll_Changed(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange <= 0) return;
+        if (sender is not ScrollViewer sv) return;
+        if (sv.ScrollableHeight - sv.VerticalOffset > 200) return; // not at the bottom yet
+        LoadMoreIconsAsync();
     }
 
     private void IconifyTile_Click(object sender, RoutedEventArgs e)
@@ -8274,5 +8472,365 @@ public partial class MainWindow : Window
         RefreshInspector();
         SelectionAdorner.InvalidateVisual();
         StatusText.Text = $"Inserted icon '{item.Id}' ({w:F0}x{h:F0}) onto canvas.";
+    }
+
+    // =========================================================================
+    // ELEMENTS / PIXABAY PHOTOS TOOL
+    // =========================================================================
+
+    private CancellationTokenSource? _photosCts;
+    private string _photosOrientation = "all";
+    private DateTime _photosBlockedUntil = DateTime.MinValue;
+    private ObservableCollection<PhotoItem> _photoItems = new();
+    private string _photosQuery = "";
+    private int _photosPage;
+    private int _photosTotalHits;
+    private int _photosRateLimit;
+    private int _photosRateRemaining;
+    private bool _photosHasMore;
+    private bool _photosLoadingMore;
+    private string _photosFooterMessage = "";
+
+    private void CategoryPhotos_Click(object sender, RoutedEventArgs e)
+    {
+        ElementsCategoriesView.Visibility = Visibility.Collapsed;
+        ElementsIconifyView.Visibility = Visibility.Collapsed;
+        ElementsPhotosView.Visibility = Visibility.Visible;
+        PhotosSearchBox.Focus();
+        // No automatic search: an empty query would burn API quota on the
+        // popular feed, so the user types what they want first.
+    }
+
+    private void PhotosBack_Click(object sender, RoutedEventArgs e)
+    {
+        ElementsPhotosView.Visibility = Visibility.Collapsed;
+        ElementsCategoriesView.Visibility = Visibility.Visible;
+    }
+
+    private void PhotosSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (PhotosSearchPlaceholder == null) return; // raised while the XAML loads
+        string query = PhotosSearchBox.Text;
+        PhotosSearchPlaceholder.Visibility = string.IsNullOrEmpty(query) ? Visibility.Visible : Visibility.Collapsed;
+        PhotosSearchClearBtn.Visibility = string.IsNullOrEmpty(query) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>Searching runs on Enter only — one request per search, never per keystroke.</summary>
+    private void PhotosSearch_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        LoadPhotosAsync(PhotosSearchBox.Text);
+    }
+
+    private void PhotosSearchClear_Click(object sender, RoutedEventArgs e)
+    {
+        PhotosSearchBox.Text = string.Empty;
+        PhotosSearchBox.Focus();
+    }
+
+    private void PhotosOrientation_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton tb || tb.Tag is not string tag) return;
+        _photosOrientation = tag;
+        PhotosOrientationAny.IsChecked = tag == "all";
+        PhotosOrientationWide.IsChecked = tag == "horizontal";
+        PhotosOrientationTall.IsChecked = tag == "vertical";
+        if (string.IsNullOrWhiteSpace(PhotosSearchBox.Text)) return; // nothing to re-search yet
+        LoadPhotosAsync(PhotosSearchBox.Text);
+    }
+
+    private void PhotosRetry_Click(object sender, RoutedEventArgs e)
+    {
+        LoadPhotosAsync(PhotosSearchBox.Text);
+    }
+
+    private void PhotosOpenSettings_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSettings(showIntegrations: true);
+        LoadPhotosAsync(PhotosSearchBox.Text);
+    }
+
+    private void PhotosToggleDebug_Click(object sender, RoutedEventArgs e)
+    {
+        PhotosDebugText.Visibility = PhotosDebugText.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void ShowPhotosMessage(string title, string body, bool offerSettings)
+    {
+        PhotosErrorTitle.Text = title;
+        PhotosErrorBody.Text = body;
+        PhotosOpenSettingsBtn.Visibility = offerSettings ? Visibility.Visible : Visibility.Collapsed;
+        PhotosErrorPanel.Visibility = Visibility.Visible;
+    }
+
+    private async void LoadPhotosAsync(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            _photoItems.Clear();
+            PhotosItemsList.ItemsSource = _photoItems;
+            PhotosEmptyHint.Text = "Type a search word to browse the photo library.";
+            PhotosEmptyHint.Visibility = Visibility.Visible;
+            PhotosErrorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (query.Trim().Length < 2)
+        {
+            // Short terms match almost everything and only burn API quota.
+            _photoItems.Clear();
+            PhotosItemsList.ItemsSource = _photoItems;
+            PhotosEmptyHint.Text = "Type at least 2 characters to search.";
+            PhotosEmptyHint.Visibility = Visibility.Visible;
+            PhotosErrorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        string key = _settings.PixabayApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            _photoItems.Clear();
+            PhotosItemsList.ItemsSource = _photoItems;
+            PhotosEmptyHint.Visibility = Visibility.Collapsed;
+            ShowPhotosMessage(
+                "API key needed",
+                "Add your free Pixabay API key in Settings → Integrations to search photos.",
+                offerSettings: true);
+            return;
+        }
+
+        // After a rate-limit error the key is on cooldown: don't burn more
+        // requests until the window resets.
+        if (DateTime.UtcNow < _photosBlockedUntil)
+        {
+            int wait = (int)Math.Ceiling((_photosBlockedUntil - DateTime.UtcNow).TotalSeconds);
+            PhotosErrorPanel.Visibility = Visibility.Visible;
+            PhotosErrorTitle.Text = "Rate limit reached";
+            PhotosErrorBody.Text = $"The photo library allows a limited number of requests per minute. Try again in {wait} seconds.";
+            PhotosOpenSettingsBtn.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _photosCts?.Cancel();
+        _photosCts?.Dispose();
+        _photosCts = new CancellationTokenSource();
+        var ct = _photosCts.Token;
+
+        _photosQuery = query;
+        _photosPage = 0;
+        _photosTotalHits = 0;
+        _photosHasMore = false;
+        _photosLoadingMore = false;
+        _photosFooterMessage = "";
+        _photoItems.Clear();
+
+        PhotosLoadingBar.Visibility = Visibility.Visible;
+        PhotosErrorPanel.Visibility = Visibility.Collapsed;
+        PhotosDebugText.Visibility = Visibility.Collapsed;
+        PhotosDebugText.Text = string.Empty;
+
+        try
+        {
+            var result = await PixabayService.SearchAsync(key, query, _photosOrientation, 1, ct);
+            if (ct.IsCancellationRequested) return;
+
+            _photosPage = result.Page;
+            _photosHasMore = result.HasMore;
+            _photosTotalHits = result.TotalHits;
+            _photosRateLimit = result.RateLimitLimit;
+            _photosRateRemaining = result.RateLimitRemaining;
+            _photoItems = new ObservableCollection<PhotoItem>(result.Items);
+            PhotosItemsList.ItemsSource = _photoItems;
+            PhotosEmptyHint.Visibility = _photoItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdatePhotosFooter();
+            if (_photoItems.Count == 0)
+            {
+                StatusText.Text = $"No photos found for '{query}'.";
+            }
+            else
+            {
+                StatusText.Text = $"Found {_photoItems.Count} of {result.TotalHits} photos for '{query}'.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // query was replaced
+        }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested) return;
+            bool limited = ex is PixabayRateLimitException;
+            if (limited)
+            {
+                var limit = (PixabayRateLimitException)ex;
+                _photosBlockedUntil = DateTime.UtcNow.AddSeconds(Math.Max(15, limit.RetryAfterSeconds));
+            }
+            ShowPhotosMessage(
+                limited ? "Rate limit reached" : "Could not load photos.",
+                ex.Message,
+                offerSettings: false);
+            PhotosEmptyHint.Visibility = Visibility.Collapsed;
+            PhotosDebugText.Text = $"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}";
+            StatusText.Text = limited
+                ? "Photo library request limit reached — try again in a minute."
+                : "Failed to load photos from the Pixabay library.";
+        }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                PhotosLoadingBar.Visibility = Visibility.Collapsed;
+            }
+        }
+    }
+
+    /// <summary>Pull the next page of the current photo search when the list is scrolled down.</summary>
+    private async void LoadMorePhotosAsync()
+    {
+        if (_photosLoadingMore) return;
+        if (!_photosHasMore)
+        {
+            UpdatePhotosFooter();
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_photosQuery)) return;
+        if (_photosPage <= 0) return;
+        if (DateTime.UtcNow < _photosBlockedUntil)
+        {
+            int wait = (int)Math.Ceiling((_photosBlockedUntil - DateTime.UtcNow).TotalSeconds);
+            PhotosListStatus.Text = $"Request limit reached — try again in {wait}s";
+            return;
+        }
+
+        string key = _settings.PixabayApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            PhotosListStatus.Text = "Add your Pixabay API key in Settings → Integrations.";
+            return;
+        }
+
+        _photosLoadingMore = true;
+        PhotosLoadingBar.Visibility = Visibility.Visible;
+        PhotosListStatus.Text = "Loading more photos…";
+        PhotosLoadMoreBtn.Visibility = Visibility.Collapsed;
+        _photosFooterMessage = "";
+        try
+        {
+            var result = await PixabayService.SearchAsync(
+                key, _photosQuery, _photosOrientation, _photosPage + 1, CancellationToken.None);
+            _photosPage = result.Page;
+            _photosHasMore = result.HasMore;
+            _photosTotalHits = result.TotalHits;
+            _photosRateLimit = result.RateLimitLimit;
+            _photosRateRemaining = result.RateLimitRemaining;
+            foreach (var item in result.Items) _photoItems.Add(item);
+            StatusText.Text = $"Found {_photoItems.Count} of {result.TotalHits} photos for '{_photosQuery}'.";
+        }
+        catch (PixabayRateLimitException ex)
+        {
+            _photosBlockedUntil = DateTime.UtcNow.AddSeconds(Math.Max(15, ex.RetryAfterSeconds));
+            _photosFooterMessage = $"Request limit reached — try again in {Math.Max(15, ex.RetryAfterSeconds)}s";
+            StatusText.Text = "Photo library request limit reached — try again in a minute.";
+        }
+        catch (Exception ex)
+        {
+            _photosFooterMessage = "Could not load more: " + ex.Message;
+            StatusText.Text = _photosFooterMessage;
+        }
+        finally
+        {
+            _photosLoadingMore = false;
+            PhotosLoadingBar.Visibility = Visibility.Collapsed;
+            UpdatePhotosFooter();
+        }
+    }
+
+    /// <summary>Footer text + manual paging button for the photo list.</summary>
+    private void UpdatePhotosFooter()
+    {
+        if (_photoItems.Count == 0 && _photosFooterMessage.Length == 0)
+        {
+            PhotosListStatus.Text = "";
+            PhotosQuotaText.Text = "";
+            PhotosLoadMoreBtn.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (_photosFooterMessage.Length > 0)
+        {
+            PhotosListStatus.Text = _photosFooterMessage;
+            PhotosListStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xB0, 0x20));
+            PhotosLoadMoreBtn.Visibility = _photosHasMore ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        string count = _photosTotalHits > 0
+            ? $"{_photoItems.Count} of {_photosTotalHits} photos"
+            : $"{_photoItems.Count} photos";
+        PhotosListStatus.Text = _photosHasMore ? count + " — scroll for more" : count + " — end of results";
+        PhotosListStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x8E, 0xA0, 0xB4));
+        PhotosQuotaText.Text = _photosRateLimit > 0
+            ? $"{_photosRateRemaining}/{_photosRateLimit} API requests left this minute"
+            : "";
+        PhotosLoadMoreBtn.Visibility = _photosHasMore ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PhotosLoadMore_Click(object sender, RoutedEventArgs e) => LoadMorePhotosAsync();
+
+    private void PhotosScroll_Changed(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange <= 0) return;
+        if (sender is not ScrollViewer sv) return;
+        if (sv.ScrollableHeight - sv.VerticalOffset > 200) return; // not at the bottom yet
+        LoadMorePhotosAsync();
+    }
+
+    private async void PhotosTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.Tag is not PhotoItem item) return;
+        if (string.IsNullOrWhiteSpace(item.LargeUrl) && string.IsNullOrWhiteSpace(item.WebUrl)) return;
+
+        PhotosLoadingBar.Visibility = Visibility.Visible;
+        try
+        {
+            var bmp = await PixabayService.DownloadBestAsync(item);
+            if (bmp == null) return;
+            PlacePhoto(bmp, item);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not download the photo: " + ex.Message;
+        }
+        finally
+        {
+            PhotosLoadingBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Drop a downloaded photo on the canvas, fitted to the artboard.</summary>
+    private void PlacePhoto(BitmapSource bmp, PhotoItem item)
+    {
+        PushUndo();
+
+        var art = _doc.ArtboardRect;
+        double scale = Math.Min(art.Width / bmp.PixelWidth, art.Height / bmp.PixelHeight);
+        if (scale > 1) scale = 1; // never upscale a small photo
+        double w = Math.Max(1, Math.Round(bmp.PixelWidth * scale));
+        double h = Math.Max(1, Math.Round(bmp.PixelHeight * scale));
+
+        var el = new ImageElement
+        {
+            X = Math.Round(art.X + (art.Width - w) / 2),
+            Y = Math.Round(art.Y + (art.Height - h) / 2),
+            Width = w,
+            Height = h,
+            Source = bmp,
+        };
+
+        _doc.Add(el);
+        StatusText.Text = $"Placed photo '{item.DisplayName}' ({w:F0}×{h:F0} px) on the canvas.";
     }
 }

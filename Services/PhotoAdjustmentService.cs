@@ -26,7 +26,15 @@ public static class PhotoAdjustmentService
         var pixels = new byte[stride * h];
         bmp.CopyPixels(pixels, stride, 0);
 
+        // The intensity scales the whole edit: the adjustments are applied in
+        // full and the result is mixed back towards the original, so every
+        // effect lands at the same fraction of its strength.
+        double intensity = Math.Clamp(adjustments.Intensity / 100.0, 0, 1);
+        if (intensity <= 0.001) return bmp; // the edit is switched off entirely
+        byte[]? original = intensity < 0.999 ? (byte[])pixels.Clone() : null;
+
         Apply(pixels, w, h, adjustments);
+        if (original != null) MixTowards(original, pixels, intensity);
 
         var result = BitmapSource.Create(
             w, h,
@@ -154,6 +162,17 @@ public static class PhotoAdjustmentService
             current.Freeze();
         }
         return current;
+    }
+
+    /// <summary>Mix the adjusted pixels back towards the original (alpha is kept).</summary>
+    private static void MixTowards(byte[] original, byte[] adjusted, double amount)
+    {
+        for (int i = 0; i < adjusted.Length; i += 4)
+        {
+            adjusted[i] = ToByte(original[i] + (adjusted[i] - original[i]) * amount);
+            adjusted[i + 1] = ToByte(original[i + 1] + (adjusted[i + 1] - original[i + 1]) * amount);
+            adjusted[i + 2] = ToByte(original[i + 2] + (adjusted[i + 2] - original[i + 2]) * amount);
+        }
     }
 
     private static void Apply(byte[] px, int w, int h, PhotoAdjustments a)

@@ -12,7 +12,7 @@ public partial class SettingsDialog : Window
 {
     public AppSettings Settings { get; }
 
-    public SettingsDialog(AppSettings settings)
+    public SettingsDialog(AppSettings settings, bool showIntegrations = false)
     {
         InitializeComponent();
         SourceInitialized += (_, _) => DarkTitleBar.Apply(this);
@@ -20,8 +20,10 @@ public partial class SettingsDialog : Window
         Settings = settings;
         WidthBox.Text = settings.DefaultCanvasWidth.ToString();
         HeightBox.Text = settings.DefaultCanvasHeight.ToString();
+        PixabayKeyBox.Text = settings.PixabayApiKey ?? "";
         if (settings.DefaultCanvasTransparent) BgTransparent.IsChecked = true;
         else BgWhite.IsChecked = true;
+        if (showIntegrations) IntegrationsTab_Click(this, new RoutedEventArgs());
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -37,11 +39,28 @@ public partial class SettingsDialog : Window
         Settings.DefaultCanvasWidth = w;
         Settings.DefaultCanvasHeight = h;
         Settings.DefaultCanvasTransparent = BgTransparent.IsChecked == true;
+        Settings.PixabayApiKey = PixabayKeyBox.Text.Trim();
         Settings.Save();
         DialogResult = true;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    private void GeneralTab_Click(object sender, RoutedEventArgs e)
+    {
+        GeneralTab.Visibility = Visibility.Visible;
+        IntegrationsTab.Visibility = Visibility.Collapsed;
+        GeneralTabBtn.IsChecked = true;
+        IntegrationsTabBtn.IsChecked = false;
+    }
+
+    private void IntegrationsTab_Click(object sender, RoutedEventArgs e)
+    {
+        GeneralTab.Visibility = Visibility.Collapsed;
+        IntegrationsTab.Visibility = Visibility.Visible;
+        GeneralTabBtn.IsChecked = false;
+        IntegrationsTabBtn.IsChecked = true;
+    }
 
     private void RepositoryLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
     {

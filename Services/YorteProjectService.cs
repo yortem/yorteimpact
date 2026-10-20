@@ -138,6 +138,8 @@ public static class YorteProjectService
         public string? ToneColor { get; set; }
         public double RecolorAmount { get; set; }
         public string? RecolorColor { get; set; }
+        /// <summary>Strength of the whole edit (100 = full). Null in projects saved before it existed.</summary>
+        public double? Intensity { get; set; }
     }
 
     public sealed class PolygonPointDto
@@ -536,6 +538,7 @@ public static class YorteProjectService
         ToneColor = ToHex(a.ToneColor),
         RecolorAmount = a.RecolorAmount,
         RecolorColor = ToHex(a.RecolorColor),
+        Intensity = a.Intensity,
     };
 
     private static void FromDto(PhotoAdjustDto dto, PhotoAdjustments a)
@@ -560,6 +563,7 @@ public static class YorteProjectService
         a.ToneColor = FromHex(dto.ToneColor, PhotoAdjustments.DefaultToneColor);
         a.RecolorAmount = dto.RecolorAmount;
         a.RecolorColor = FromHex(dto.RecolorColor, Colors.White);
+        a.Intensity = dto.Intensity ?? 100; // projects saved before it existed read as full strength
     }
 
     public static byte[] EncodePng(BitmapSource bmp)

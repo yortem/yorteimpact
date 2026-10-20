@@ -53,6 +53,26 @@ public sealed class IconItem
     }
 }
 
+/// <summary>A page of icons plus the total number of matches.</summary>
+public sealed class IconSearchResult
+{
+    public List<IconItem> Items { get; init; } = new();
+    /// <summary>Total icons matching the query (the library caps this at 128).</summary>
+    public int Total { get; init; }
+    /// <summary>Icons the library returned before the artwork was resolved.</summary>
+    public int RawCount { get; init; }
+    /// <summary>Offset this page started at.</summary>
+    public int Start { get; init; }
+
+    /// <summary>Icons requested per page.</summary>
+    public const int Window = 64;
+    /// <summary>Hard cap of the library for a single query.</summary>
+    public const int MaxResults = 128;
+
+    /// <summary>True when another page can be pulled for this query.</summary>
+    public bool HasMore => RawCount >= Window && (Start + RawCount) < MaxResults;
+}
+
 public static class IconifyService
 {
     private static readonly HttpClient HttpClient = new()
@@ -60,7 +80,7 @@ public static class IconifyService
         Timeout = TimeSpan.FromSeconds(10)
     };
 
-    private static readonly ConcurrentDictionary<string, List<IconItem>> SearchCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IconSearchResult> SearchCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, string> PathCache = new(StringComparer.OrdinalIgnoreCase);
 
     public static readonly string[] PopularIconIds =
@@ -81,23 +101,34 @@ public static class IconifyService
     {
         const string key = "__popular__";
         if (SearchCache.TryGetValue(key, out var cached))
-            return cached;
+            return cached.Items;
 
         var items = await FetchIconsByIdsAsync(PopularIconIds, ct).ConfigureAwait(false);
-        SearchCache[key] = items;
+        SearchCache[key] = new IconSearchResult { Items = items, Total = items.Count, RawCount = items.Count };
         return items;
     }
 
-    public static async Task<List<IconItem>> SearchIconsAsync(string query, CancellationToken ct = default)
+    /// <summary>
+    /// Search icons. <paramref name="start"/> is the offset of the page, so
+    /// scrolling can pull the next slice of the same query.
+    /// </summary>
+    public static async Task<IconSearchResult> SearchIconsAsync(
+        string query, int start = 0, CancellationToken ct = default)
     {
         query = query.Trim();
         if (string.IsNullOrWhiteSpace(query))
-            return await GetPopularIconsAsync(ct).ConfigureAwait(false);
+        {
+            var popular = await GetPopularIconsAsync(ct).ConfigureAwait(false);
+            return new IconSearchResult { Items = popular, Total = popular.Count, RawCount = popular.Count };
+        }
 
-        if (SearchCache.TryGetValue(query, out var cached))
+        string cacheKey = $"{query}|{start}";
+        if (SearchCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        string url = $"https://api.iconify.design/search?query={Uri.EscapeDataString(query)}&limit=48";
+        string url = $"https://api.iconify.design/search?query={Uri.EscapeDataString(query)}" +
+                     $"&limit={start + IconSearchResult.Window}";
+        if (start > 0) url += $"&start={start}";
         using var resp = await HttpClient.GetAsync(url, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
 
@@ -115,9 +146,20 @@ public static class IconifyService
             }
         }
 
+        int total = idList.Count;
+        if (doc.RootElement.TryGetProperty("total", out var totalProp) && totalProp.TryGetInt32(out int tv))
+            total = Math.Max(tv, start + idList.Count);
+
         var results = await FetchIconsByIdsAsync(idList, ct).ConfigureAwait(false);
-        SearchCache[query] = results;
-        return results;
+        var result = new IconSearchResult
+        {
+            Items = results,
+            Total = total,
+            RawCount = idList.Count,
+            Start = start,
+        };
+        SearchCache[cacheKey] = result;
+        return result;
     }
 
     private static async Task<List<IconItem>> FetchIconsByIdsAsync(IEnumerable<string> ids, CancellationToken ct)

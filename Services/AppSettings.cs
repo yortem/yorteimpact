@@ -36,6 +36,12 @@ public sealed class AppSettings
     /// <summary>User-saved paintbrush presets.</summary>
     public List<BrushDefaults> BrushPresets { get; set; } = new();
 
+    /// <summary>
+    /// Pixabay API key used by the Photos element library. Empty means the
+    /// photo search stays disabled until the user adds a key.
+    /// </summary>
+    public string PixabayApiKey { get; set; } = "";
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "YorteImpact", "settings.json");

@@ -37,7 +37,10 @@ dotnet run
 The editor opens on a **default canvas** (2000 × 2000, white). Change the
 startup default in **Settings** (the Settings button in the top bar, or
 `Ctrl+,`); the value is stored in `%AppData%\YorteImpact\settings.json`.
-Settings also includes a direct link to the project's GitHub repository.
+Settings has two tabs: **General** for the startup canvas and background, and
+**Integrations** for external services — the first one is **Pixabay**, the
+photo library used by the Elements panel. Settings also includes a direct link
+to the project's GitHub repository.
 
 The editor also remembers its window size, position and maximized state
 between launches.
@@ -173,6 +176,9 @@ exports show the adjusted result, and **Reset** always returns to the original.
 The tab includes:
 
 - A live RGB histogram and the image's pixel dimensions.
+- **Intensity** — scales the whole edit at once. At 100% every adjustment
+  applies in full; at 50% the same settings land at half strength without
+  changing the individual values. It sits above the presets.
 - **Light** — exposure, contrast, highlights, shadows, whites and blacks.
 - **Color** — temperature, tint, vibrance and saturation. Temperature uses a
   blue-to-warm track and Tint a green-to-magenta track so the direction is
@@ -322,19 +328,53 @@ Open the **Elements** tool (`I`) to browse ready-made shapes, icons and library
 components. A secondary sidebar slides open beside the tool rail, pushing the
 canvas area in step so your work remains centered and visible.
 
-- **Categories** — 2-column tiles categorize available items, starting with
-  the **Iconify Icons** library.
+- **Categories** — 2-column tiles categorize available items: the **Iconify
+  Icons** library and the **Pixabay Photos** library.
 - **Search & Insert** — Quick search box with live results and popular icon
   suggestions. Click any icon to place it onto the center of the canvas.
+- **More results** — Both libraries load the next page automatically when you
+  scroll to the bottom of the list, and each list has a **Load more** button as
+  a manual fallback. The line under the list always shows how many results are
+  loaded, whether more exist, and the reason when a page fails to load.
 - **Vector Styling** — Inserted elements are full vector shapes with custom
   fills, gradients, strokes, shadows, opacity and free scaling.
 - **Offline Reliability** — SVG vector data is embedded directly in `.yimpact`
   project files, ensuring projects open and export anywhere without requiring
   an internet connection.
 
+#### Photos (Pixabay)
+
+The **Photos** category searches royalty-free photos and places them on the
+canvas as regular image objects.
+
+- Add your free API key once in **Settings → Integrations → Pixabay** (get one
+  at `pixabay.com/api`). Without a key the panel explains what is missing and
+  offers a shortcut straight to that settings tab.
+- Type a search term and press **Enter** to search — searching never runs
+  while you type, so every search is exactly one API request. An empty box
+  shows a hint instead of loading the popular feed, so no quota is spent
+  before you ask for something.
+- The **Any / Landscape / Portrait** buttons filter the results by orientation.
+- Scrolling to the bottom of the photo list loads the next page of results.
+- Click a thumbnail to download it and place it in the middle of the artboard,
+  scaled to fit the artboard and never upscaled beyond its native resolution.
+- The panel shows how many API requests are left, and reports the per-minute
+  request limit with the time to wait when it is reached — after that the
+  library is paused until the window resets. Repeated searches for the same
+  word and orientation are answered from a local cache.
+- Only the search itself costs API requests: the photo thumbnails are loaded
+  straight from the image CDN. Each search is one request, and every extra
+  page of results is one more. Results are cached for a day (on disk as well as
+  in memory), so repeating a search costs nothing.
+- Photos are embedded in the `.yimpact` file like any other image, so projects
+  stay self-contained, and safe search is always on.
+
 ### Selection and transforms
 
 - Click to select; a 1px animated outline hugs the actual opaque pixels.
+- Right-click opens the menu for the current context. Actions that do not apply
+  are left out — merge without a multi-selection, copy/paste style without a
+  target, replace background on anything but a shape.
 - Drag on empty canvas with **Pick** to marquee-select every object the rectangle
   intersects. Hold Ctrl or Shift while marquee-dragging to add to the current
   selection.
@@ -357,7 +397,9 @@ canvas area in step so your work remains centered and visible.
   the visible grid columns and repeated gaps between objects (grid-like
   spacing); orange guides show the snapped line. Every object contributes its
   own edges and center as snap lines, so objects line up even when they do not
-  sit on the grid.
+  sit on the grid. Snapping is magnetic: a guide catches the object from a
+  comfortable distance and keeps holding it — the object only lets go when it
+  is dragged clearly away — so you rarely have to aim precisely.
 - **Delete**, arrow keys and the canvas-align buttons apply to the whole
   selection.
 - Select two or more objects and right-click → **Merge** to combine them into

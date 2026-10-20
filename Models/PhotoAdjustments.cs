@@ -31,6 +31,7 @@ public sealed class PhotoAdjustments
     private Color _toneColor = DefaultToneColor;
     private double _recolorAmount;
     private Color _recolorColor = Colors.White;
+    private double _intensity = 100;
 
     /// <summary>Exposure in stops, -5..+5.</summary>
     public double Exposure { get => _exposure; set => _exposure = Clamp(value, -5, 5); }
@@ -62,12 +63,19 @@ public sealed class PhotoAdjustments
     public double RecolorAmount { get => _recolorAmount; set => _recolorAmount = Clamp(value, 0, 100); }
     public Color RecolorColor { get => _recolorColor; set => _recolorColor = value; }
 
+    /// <summary>
+    /// Strength of the whole edit, 0..100. At 100 the adjustments apply in
+    /// full; at 50 every effect is applied at half strength, without changing
+    /// the individual settings.
+    /// </summary>
+    public double Intensity { get => _intensity; set => _intensity = Clamp(value, 0, 100); }
+
     public bool IsDefault =>
         _exposure == 0 && _contrast == 0 && _highlights == 0 && _shadows == 0 &&
         _whites == 0 && _blacks == 0 && _temperature == 0 && _tint == 0 &&
         _vibrance == 0 && _saturation == 0 && _clarity == 0 && _vignette == 0 &&
         _grain == 0 && _blur == 0 && _sharpen == 0 && _glow == 0 && _toneAmount == 0 &&
-        _recolorAmount == 0;
+        _recolorAmount == 0 && _intensity == 100;
 
     public void Reset()
     {
@@ -75,6 +83,7 @@ public sealed class PhotoAdjustments
         _temperature = _tint = _vibrance = _saturation = 0;
         _clarity = _vignette = _grain = 0;
         _blur = _sharpen = _glow = _toneAmount = _recolorAmount = 0;
+        _intensity = 100;
     }
 
     public void CopyFrom(PhotoAdjustments? other)
@@ -100,6 +109,7 @@ public sealed class PhotoAdjustments
         ToneColor = other.ToneColor;
         RecolorAmount = other.RecolorAmount;
         RecolorColor = other.RecolorColor;
+        Intensity = other.Intensity;
     }
 
     public PhotoAdjustments Clone()

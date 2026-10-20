@@ -56,6 +56,35 @@
       <Setter Property="Padding" Value="10,8"/>
       <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
     </Style>
+
+    <Style x:Key="TabBtn" TargetType="ToggleButton">
+      <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Padding" Value="14,8"/>
+      <Setter Property="Margin" Value="0,0,6,0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                    CornerRadius="5" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#16202D"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#13243A"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                <Setter Property="Foreground" Value="#E6EEF6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <StackPanel Margin="28,24,28,22">
@@ -84,67 +113,104 @@
 
     <Border Height="1" Background="#1A2636" Margin="0,0,0,16"/>
 
-    <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
-            BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
-      <StackPanel>
-        <TextBlock Text="DEFAULT CANVAS" FontSize="10" FontWeight="Bold"
-                   Foreground="{StaticResource Muted}"/>
-        <TextBlock Text="Used when the application creates its startup canvas."
-                   FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,14"/>
-        <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="20"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
-          <StackPanel>
-            <TextBlock Text="Width · pixels" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
-            <TextBox x:Name="WidthBox" Text="2000" Style="{StaticResource DimensionBox}"/>
-          </StackPanel>
-          <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                     Margin="0,0,0,9" FontSize="15" Foreground="{StaticResource Muted}"/>
-          <StackPanel Grid.Column="2">
-            <TextBlock Text="Height · pixels" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
-            <TextBox x:Name="HeightBox" Text="2000" Style="{StaticResource DimensionBox}"/>
-          </StackPanel>
-        </Grid>
-      </StackPanel>
-    </Border>
+    <!-- Tabs -->
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+      <ToggleButton x:Name="GeneralTabBtn" Style="{StaticResource TabBtn}" Content="General"
+                    IsChecked="True" Click="GeneralTab_Click"/>
+      <ToggleButton x:Name="IntegrationsTabBtn" Style="{StaticResource TabBtn}" Content="Integrations"
+                    Click="IntegrationsTab_Click"/>
+    </StackPanel>
 
-    <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
-            BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+    <!-- ============ GENERAL TAB ============ -->
+    <Grid x:Name="GeneralTab">
+    <StackPanel>
+      <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
+              BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+        <StackPanel>
+          <TextBlock Text="DEFAULT CANVAS" FontSize="10" FontWeight="Bold"
+                     Foreground="{StaticResource Muted}"/>
+          <TextBlock Text="Used when the application creates its startup canvas."
+                     FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,14"/>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="20"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+              <TextBlock Text="Width · pixels" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
+              <TextBox x:Name="WidthBox" Text="2000" Style="{StaticResource DimensionBox}"/>
+            </StackPanel>
+            <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                       Margin="0,0,0,9" FontSize="15" Foreground="{StaticResource Muted}"/>
+            <StackPanel Grid.Column="2">
+              <TextBlock Text="Height · pixels" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
+              <TextBox x:Name="HeightBox" Text="2000" Style="{StaticResource DimensionBox}"/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
+              BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+        <StackPanel>
+          <TextBlock Text="DEFAULT BACKGROUND" FontSize="10" FontWeight="Bold"
+                     Foreground="{StaticResource Muted}"/>
+          <TextBlock Text="Choose the starting surface for a new canvas."
+                     FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,12"/>
+          <UniformGrid Columns="2">
+            <RadioButton x:Name="BgWhite" GroupName="Bg" Style="{StaticResource BgTile}" Margin="0,0,8,0">
+              <StackPanel Orientation="Horizontal">
+                <Border Width="34" Height="24" CornerRadius="3" Background="White"
+                        BorderBrush="#223248" BorderThickness="1"/>
+                <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
+                  <TextBlock Text="White" FontSize="12" FontWeight="SemiBold"/>
+                  <TextBlock Text="Opaque canvas" FontSize="10" Foreground="{StaticResource Muted}"/>
+                </StackPanel>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="BgTransparent" GroupName="Bg" Style="{StaticResource BgTile}" Margin="8,0,0,0">
+              <StackPanel Orientation="Horizontal">
+                <Border Width="34" Height="24" CornerRadius="3" Background="{StaticResource Checker}"
+                        BorderBrush="#223248" BorderThickness="1"/>
+                <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
+                  <TextBlock Text="Transparent" FontSize="12" FontWeight="SemiBold"/>
+                  <TextBlock Text="Alpha background" FontSize="10" Foreground="{StaticResource Muted}"/>
+                </StackPanel>
+              </StackPanel>
+            </RadioButton>
+          </UniformGrid>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+    </Grid>
+
+    <!-- ============ INTEGRATIONS TAB ============ -->
+    <Grid x:Name="IntegrationsTab" Visibility="Collapsed">
       <StackPanel>
-        <TextBlock Text="DEFAULT BACKGROUND" FontSize="10" FontWeight="Bold"
-                   Foreground="{StaticResource Muted}"/>
-        <TextBlock Text="Choose the starting surface for a new canvas."
-                   FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,12"/>
-        <UniformGrid Columns="2">
-          <RadioButton x:Name="BgWhite" GroupName="Bg" Style="{StaticResource BgTile}" Margin="0,0,8,0">
-            <StackPanel Orientation="Horizontal">
-              <Border Width="34" Height="24" CornerRadius="3" Background="White"
-                      BorderBrush="#223248" BorderThickness="1"/>
-              <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
-                <TextBlock Text="White" FontSize="12" FontWeight="SemiBold"/>
-                <TextBlock Text="Opaque canvas" FontSize="10" Foreground="{StaticResource Muted}"/>
-              </StackPanel>
-            </StackPanel>
-          </RadioButton>
-          <RadioButton x:Name="BgTransparent" GroupName="Bg" Style="{StaticResource BgTile}" Margin="8,0,0,0">
-            <StackPanel Orientation="Horizontal">
-              <Border Width="34" Height="24" CornerRadius="3" Background="{StaticResource Checker}"
-                      BorderBrush="#223248" BorderThickness="1"/>
-              <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
-                <TextBlock Text="Transparent" FontSize="12" FontWeight="SemiBold"/>
-                <TextBlock Text="Alpha background" FontSize="10" Foreground="{StaticResource Muted}"/>
-              </StackPanel>
-            </StackPanel>
-          </RadioButton>
-        </UniformGrid>
+        <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
+                BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="PIXABAY" FontSize="10" FontWeight="Bold"
+                       Foreground="{StaticResource Muted}"/>
+            <TextBlock Text="Photo library for the Elements panel." FontSize="12" Margin="0,5,0,10"/>
+            <TextBox x:Name="PixabayKeyBox" FontSize="12" Background="#05080E" Foreground="#E6EEF6"
+                     BorderBrush="#223248" BorderThickness="1" Padding="10,8"
+                     CaretBrush="{StaticResource Accent}" FontFamily="Consolas"/>
+            <TextBlock FontSize="10.5" Foreground="{StaticResource Muted}" Margin="2,8,0,0" TextWrapping="Wrap">
+              <Run Text="Photos are provided by Pixabay. Create a free API key at "/>
+              <Hyperlink NavigateUri="https://pixabay.com/api/docs/"
+                         RequestNavigate="RepositoryLink_RequestNavigate"
+                         Foreground="{StaticResource Accent}">pixabay.com/api</Hyperlink>
+              <Run Text="."/>
+            </TextBlock>
+          </StackPanel>
+        </Border>
       </StackPanel>
-    </Border>
+    </Grid>
 
     <Border Background="#0D131D" BorderBrush="#1A2636" BorderThickness="1"
-            CornerRadius="8" Padding="16,12">
+            CornerRadius="8" Padding="16,12" Margin="0,16,0,0">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -163,7 +229,6 @@
                    VerticalAlignment="Center" Margin="16,0,0,0"/>
       </Grid>
     </Border>
-
     <TextBlock x:Name="ErrorText" Foreground="#FF7B7B" Margin="2,12,0,0"
                FontSize="11" Visibility="Collapsed"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
