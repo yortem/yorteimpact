@@ -263,8 +263,12 @@ public class DesignDocument : INotifyPropertyChanged
         {
             _selectedElements.Add(el);
             el.IsSelected = true;
+            // Assign Selected before raising the count notifications: the UI
+            // reads Selected whenever SelectionCount is 1.
+            Selected = el;
             Raise(nameof(SelectedElements));
             Raise(nameof(SelectionCount));
+            return;
         }
         Selected = el;
     }

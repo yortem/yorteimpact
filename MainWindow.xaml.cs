@@ -12,6 +12,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shell;
@@ -79,6 +80,11 @@ public partial class MainWindow : Window
     private const double MinSize = 1;
     private const double MinZoom = 0.05;
     private const double MaxZoom = 8.0;
+
+    /// <summary>Width of the Elements panel (must match the XAML).</summary>
+    private const double ElementsSidebarWidth = 280;
+    private static readonly Duration ElementsSidebarDuration = new(TimeSpan.FromMilliseconds(220));
+    private int _elementsSidebarVersion;
 
     [DllImport("user32.dll")]
     private static extern uint GetClipboardSequenceNumber();
@@ -1237,10 +1243,11 @@ public partial class MainWindow : Window
         RefreshContour();
         SelectionAdorner.InvalidateVisual();
         GuideOverlay.InvalidateVisual();
+        var sel = _doc.Selected;
         SelectionText.Text = _doc.SelectionCount switch
         {
+            1 when sel != null => $"{sel.GetType().Name}  {sel.Width:F0}×{sel.Height:F0}  @({sel.X:F0},{sel.Y:F0})  ∠{sel.RotationAngle:F0}°  Z={sel.ZIndex}",
             0 => "Nothing selected",
-            1 => $"{_doc.Selected!.GetType().Name}  {_doc.Selected.Width:F0}×{_doc.Selected.Height:F0}  @({_doc.Selected.X:F0},{_doc.Selected.Y:F0})  ∠{_doc.Selected.RotationAngle:F0}°  Z={_doc.Selected.ZIndex}",
             _ => $"{_doc.SelectionCount} selected",
         };
         RefreshInspector();
@@ -5655,6 +5662,67 @@ public partial class MainWindow : Window
             };
     }
 
+    /// <summary>
+    /// Slide the Elements panel in and out. The panel width is animated (not
+    /// just its visibility) so the canvas area shrinks in the same frames and
+    /// the artboard glides sideways instead of jumping.
+    /// </summary>
+    private void AnimateElementsSidebar(bool open)
+    {
+        var sidebar = ElementsSidebar;
+        int version = ++_elementsSidebarVersion;
+
+        var fade = new DoubleAnimation(open ? 0 : 1, open ? 1 : 0, ElementsSidebarDuration)
+        {
+            FillBehavior = FillBehavior.HoldEnd,
+        };
+        ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fade);
+
+        if (open)
+        {
+            double from = 0;
+            if (sidebar.Visibility == Visibility.Visible)
+            {
+                // Reversing a running close animation: continue from the
+                // current width instead of snapping back to zero.
+                from = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
+                sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+                sidebar.Width = from;
+            }
+            else
+            {
+                sidebar.Visibility = Visibility.Visible;
+                sidebar.Width = 0;
+            }
+
+            var grow = new DoubleAnimation(from, ElementsSidebarWidth, ElementsSidebarDuration)
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            sidebar.BeginAnimation(FrameworkElement.WidthProperty, grow);
+            return;
+        }
+
+        if (sidebar.Visibility == Visibility.Collapsed) return;
+
+        double shrinkFrom = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
+        sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+        var shrink = new DoubleAnimation(shrinkFrom, 0, ElementsSidebarDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+            FillBehavior = FillBehavior.HoldEnd,
+        };
+        shrink.Completed += (_, _) =>
+        {
+            if (version != _elementsSidebarVersion) return; // re-opened meanwhile
+            sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+            sidebar.Width = ElementsSidebarWidth;
+            sidebar.Visibility = Visibility.Collapsed;
+        };
+        sidebar.BeginAnimation(FrameworkElement.WidthProperty, shrink);
+    }
+
     private void UpdateToolUI()
     {
         SidePickBtn.IsChecked = _tool == ActiveTool.Pick;
@@ -5683,7 +5751,7 @@ public partial class MainWindow : Window
         AttrRectPanel.Visibility = _tool == ActiveTool.Rectangle ? Visibility.Visible : Visibility.Collapsed;
         AttrLinePanel.Visibility = _tool == ActiveTool.Line ? Visibility.Visible : Visibility.Collapsed;
         AttrElementsPanel.Visibility = _tool == ActiveTool.Elements ? Visibility.Visible : Visibility.Collapsed;
-        ElementsSidebar.Visibility = _tool == ActiveTool.Elements ? Visibility.Visible : Visibility.Collapsed;
+        AnimateElementsSidebar(_tool == ActiveTool.Elements);
         bool hint = _tool is not (ActiveTool.Pick or ActiveTool.Slice or ActiveTool.Erase
             or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Line or ActiveTool.Paintbrush or ActiveTool.Elements);
         AttrHint.Visibility = hint ? Visibility.Visible : Visibility.Collapsed;

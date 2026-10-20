@@ -319,8 +319,8 @@ saved as editable elements in `.yimpact`.
 ### Elements
 
 Open the **Elements** tool (`I`) to browse ready-made shapes, icons and library
-components. A secondary sidebar opens beside the tool rail, pushing the canvas
-area so your work remains centered and visible.
+components. A secondary sidebar slides open beside the tool rail, pushing the
+canvas area in step so your work remains centered and visible.
 
 - **Categories** — 2-column tiles categorize available items, starting with
   the **Iconify Icons** library.

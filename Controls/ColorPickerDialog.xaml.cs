@@ -653,14 +653,34 @@ public partial class ColorPickerDialog : Window
         Point? point = null;
         overlay.MouseMove += (_, me) => Update(me.GetPosition(overlay));
         overlay.MouseEnter += (_, _) => Update(Mouse.GetPosition(overlay));
+
+        // DialogResult can only be set once the window runs as a modal dialog.
+        // The click that opened the picker can be replayed into the overlay
+        // while it is still being created, so the close is posted to the
+        // dispatcher and runs inside the dialog loop.
+        void CloseOverlay(bool? result)
+        {
+            overlay.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    overlay.DialogResult = result;
+                }
+                catch (InvalidOperationException)
+                {
+                    overlay.Close();
+                }
+            }));
+        }
+
         overlay.MouseLeftButtonDown += (_, me) =>
         {
             point = overlay.PointToScreen(me.GetPosition(overlay));
-            overlay.DialogResult = true;
+            CloseOverlay(true);
         };
         overlay.PreviewKeyDown += (_, ke) =>
         {
-            if (ke.Key == Key.Escape) overlay.DialogResult = false;
+            if (ke.Key == Key.Escape) CloseOverlay(false);
         };
 
         overlay.ShowDialog();

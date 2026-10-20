@@ -2146,9 +2146,14 @@
     </Border>
 
     <!-- ================= ELEMENTS SIDEBAR ================= -->
+    <!-- The width is animated when the panel opens/closes, so the canvas area
+         shrinks in step and the artboard slides instead of jumping.
+         The inner grid keeps a fixed width (280 - the 1px right border) so the
+         content never reflows while the panel animates. -->
     <Border x:Name="ElementsSidebar" DockPanel.Dock="Left" Width="280" Background="#0D131D"
-            BorderBrush="#1A2636" BorderThickness="0,0,1,0" Visibility="Collapsed">
-      <Grid>
+            BorderBrush="#1A2636" BorderThickness="0,0,1,0" Visibility="Collapsed"
+            ClipToBounds="True">
+      <Grid x:Name="ElementsSidebarContent" Width="279" HorizontalAlignment="Left">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
