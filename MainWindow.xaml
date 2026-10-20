@@ -1136,6 +1136,7 @@
     </Style>
   </Window.Resources>
 
+  <Grid>
   <DockPanel>
     <!-- ================= WINDOW TITLE BAR + PROJECT TABS ================= -->
     <Border DockPanel.Dock="Top" Height="40" Background="#05080E"
@@ -1275,6 +1276,21 @@
                 </Canvas>
               </Viewbox>
               <TextBlock Text="Copy for AI" Margin="7,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button Style="{StaticResource TopBtn}" Click="CopyCanvasImage_Click" ToolTip="Copy the whole canvas as one image at its original size">
+            <StackPanel Orientation="Horizontal">
+              <Viewbox Width="16" Height="16">
+                <Canvas Width="24" Height="24">
+                  <Path Data="M3,5 H21 V19 H3 Z M3,16 L8.5,10.5 L13,15 L16.5,11.5 L21,16"
+                        Stroke="{StaticResource IconBrush}" StrokeThickness="1.55"
+                        StrokeLineJoin="Round" Fill="Transparent"/>
+                  <Ellipse Canvas.Left="14" Canvas.Top="7" Width="4" Height="4"
+                           Stroke="{StaticResource IconBrush}" StrokeThickness="1.55"
+                           Fill="Transparent"/>
+                </Canvas>
+              </Viewbox>
+              <TextBlock Text="Copy as image" Margin="7,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
           <Button Style="{StaticResource TopBtn}" Click="Settings_Click" ToolTip="Settings (Ctrl+,) — default canvas size">
@@ -2056,6 +2072,159 @@
       </StatusBarItem>
     </StatusBar>
 
+    <!-- ================= AI CHAT PANEL ================= -->
+    <Border x:Name="AiChatPanel" DockPanel.Dock="Bottom" Height="230"
+            Background="#0B1018" BorderBrush="#1A2636" BorderThickness="0,1,0,0"
+            Visibility="Collapsed">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="6"/>
+          <RowDefinition Height="30"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- drag the top edge to resize the panel -->
+        <Border x:Name="AiResizeGrip" Grid.Row="0" Background="Transparent" Cursor="SizeNS"
+                MouseLeftButtonDown="AiResizeGrip_MouseDown"
+                MouseMove="AiResizeGrip_MouseMove"
+                MouseLeftButtonUp="AiResizeGrip_MouseUp"
+                LostMouseCapture="AiResizeGrip_LostMouseCapture"
+                ToolTip="Drag to resize">
+          <Border Width="44" Height="3" CornerRadius="2" Background="#223248"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+        </Border>
+
+        <Border Grid.Row="1" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="0,0,0,1">
+          <Grid Margin="12,0,8,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Path Data="M12,2 L14,8 L20,10 L14,12 L12,18 L10,12 L4,10 L10,8 Z"
+                    Fill="{StaticResource IconBrush}" Width="13" Height="13" Stretch="Uniform"
+                    VerticalAlignment="Center"/>
+              <TextBlock Text="AI CANVAS" FontSize="9" FontWeight="Bold"
+                         Foreground="{StaticResource IconBrush}" Margin="7,0,0,0" VerticalAlignment="Center"/>
+              <TextBlock x:Name="AiModelLabel" FontSize="10" Foreground="#8EA0B4"
+                         Margin="10,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="AiStatusText" Grid.Column="1" FontSize="11" FontWeight="SemiBold"
+                       Foreground="#2E9BFF" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       Margin="12,0" TextTrimming="CharacterEllipsis"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="AiClearBtn" Style="{StaticResource TopBtn}" Content="Clear"
+                      FontSize="10.5" Click="AiClear_Click" ToolTip="Clear this tab's chat"/>
+              <Button x:Name="AiHideBtn" Style="{StaticResource TopBtn}" Content="Hide"
+                      FontSize="10.5" Click="AiHide_Click" ToolTip="Hide the AI panel"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" Background="#080D14">
+          <ScrollViewer x:Name="AiMessagesScroll" VerticalScrollBarVisibility="Auto"
+                        Padding="12,7" Background="Transparent">
+            <ItemsControl x:Name="AiMessagesList">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border x:Name="Bubble" MaxWidth="820" HorizontalAlignment="{Binding Alignment}"
+                          Margin="0,2,0,6" Padding="10,6" CornerRadius="6"
+                          Background="#111A27" BorderBrush="#1A2636" BorderThickness="1">
+                    <TextBlock x:Name="BubbleText" Text="{Binding Text}" TextWrapping="Wrap"
+                               FontSize="12" LineHeight="18" Foreground="#E6EEF6"
+                               FlowDirection="RightToLeft"/>
+                  </Border>
+                  <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding Role}" Value="User">
+                      <Setter TargetName="Bubble" Property="Background" Value="#13243A"/>
+                      <Setter TargetName="Bubble" Property="BorderBrush" Value="#2E9BFF"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Role}" Value="Error">
+                      <Setter TargetName="Bubble" Property="Background" Value="#2A1216"/>
+                      <Setter TargetName="Bubble" Property="BorderBrush" Value="#FF7B7B"/>
+                      <Setter TargetName="BubbleText" Property="Foreground" Value="#FFB4B4"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Role}" Value="Info">
+                      <Setter TargetName="Bubble" Property="Background" Value="Transparent"/>
+                      <Setter TargetName="Bubble" Property="BorderBrush" Value="Transparent"/>
+                      <Setter TargetName="BubbleText" Property="Foreground" Value="#8EA0B4"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Role}" Value="Thinking">
+                      <Setter TargetName="Bubble" Property="Background" Value="#0F1D2E"/>
+                      <Setter TargetName="Bubble" Property="BorderBrush" Value="#2E9BFF"/>
+                      <Setter TargetName="BubbleText" Property="Foreground" Value="#8CC8FF"/>
+                      <Setter TargetName="BubbleText" Property="FontStyle" Value="Italic"/>
+                    </DataTrigger>
+                  </DataTemplate.Triggers>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <TextBlock x:Name="AiEmptyHint" Text="Ask the assistant to change the canvas. Enter sends, Shift+Enter adds a line."
+                     FontSize="11.5" Foreground="#8EA0B4" TextWrapping="Wrap" FlowDirection="RightToLeft"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="520"/>
+        </Grid>
+
+        <Border x:Name="AiConfirmBar" Grid.Row="3" Visibility="Collapsed" Background="#2A1216"
+                BorderBrush="#FF7B7B" BorderThickness="0,1,0,0" Padding="12,7">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="AiConfirmText" FontSize="11.5" Foreground="#FFB4B4"
+                       TextWrapping="Wrap" FlowDirection="RightToLeft" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <Button Grid.Column="1" Content="Delete" Padding="11,4" Margin="0,0,8,0"
+                    Background="#5A1A22" Foreground="#FFD2D2" BorderBrush="#FF7B7B" BorderThickness="1"
+                    Cursor="Hand" Click="AiConfirmYes_Click"/>
+            <Button Grid.Column="2" Content="Cancel" Padding="11,4"
+                    Background="#111A27" Foreground="#C3CFDC" BorderBrush="#223248" BorderThickness="1"
+                    Cursor="Hand" Click="AiConfirmNo_Click"/>
+          </Grid>
+        </Border>
+
+        <Border Grid.Row="4" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="0,1,0,0"
+                Padding="10,8">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <ProgressBar x:Name="AiBusyBar" Grid.Row="0" Height="3" Margin="0,0,0,6"
+                         IsIndeterminate="True" Visibility="Collapsed"
+                         Foreground="{StaticResource AccentBrush}" Background="#111A27"
+                         BorderThickness="0"/>
+            <Grid Grid.Row="1">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Grid>
+                <TextBox x:Name="AiPromptBox" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" MinHeight="38" MaxHeight="74"
+                         Background="#05080E" Foreground="#E6EEF6" BorderBrush="#223248"
+                         BorderThickness="1" Padding="9,7" FontSize="12"
+                         CaretBrush="#2E9BFF" SelectionBrush="#2E9BFF"
+                         PreviewKeyDown="AiPromptBox_PreviewKeyDown"
+                         TextChanged="AiPromptBox_TextChanged"/>
+                <TextBlock x:Name="AiPromptHint" Text="Describe the change…"
+                           FontSize="12" Foreground="#5E6E80" Margin="12,0,0,0"
+                           VerticalAlignment="Center" IsHitTestVisible="False"/>
+              </Grid>
+              <Button x:Name="AiSendBtn" Grid.Column="1" Content="Send" Width="68" Margin="8,0,0,0"
+                      Background="{StaticResource AccentGlossBrush}" Foreground="White"
+                      BorderBrush="Transparent" FontWeight="SemiBold" Cursor="Hand"
+                      Click="AiSend_Click" ToolTip="Send (Enter)"/>
+            </Grid>
+          </Grid>
+        </Border>
+      </Grid>
+    </Border>
+
     <!-- ================= LEFT SIDEBAR (narrow tool strip) ================= -->
     <Border DockPanel.Dock="Left" Width="44" Background="#0D131D"
             BorderBrush="#1A2636" BorderThickness="0,0,1,0">
@@ -2146,6 +2315,12 @@
           </ToggleButton>
 
           <Border Style="{StaticResource RailDivider}"/>
+          <ToggleButton x:Name="SideAiBtn" Style="{StaticResource SideTool}"
+                        Click="SideAi_Click" ToolTip="AI canvas assistant">
+            <Path Data="M12,2 L14,8 L20,10 L14,12 L12,18 L10,12 L4,10 L10,8 Z M19,2 L19.8,4.2 L22,5 L19.8,5.8 L19,8 L18.2,5.8 L16,5 L18.2,4.2 Z"
+                  Fill="{StaticResource IconBrush}" Stroke="Transparent"
+                  Width="20" Height="20" Stretch="Uniform"/>
+          </ToggleButton>
           <Button Style="{StaticResource SideBtn}" Click="PrimaryColorPick_Click"
                   ToolTip="Color picker - pick the main color from the screen">
             <Viewbox Width="20" Height="20">
@@ -2175,7 +2350,10 @@
     <Border x:Name="ElementsSidebar" DockPanel.Dock="Left" Width="280" Background="#0D131D"
             BorderBrush="#1A2636" BorderThickness="0,0,1,0" Visibility="Collapsed"
             ClipToBounds="True">
-      <Grid x:Name="ElementsSidebarContent" Width="279" HorizontalAlignment="Left">
+      <Grid x:Name="ElementsSidebarContent" Width="279" HorizontalAlignment="Left" Opacity="0">
+        <Grid.RenderTransform>
+          <TranslateTransform x:Name="ElementsSidebarSlide" X="-12"/>
+        </Grid.RenderTransform>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
@@ -3707,4 +3885,67 @@
       </Border>
     </Grid>
   </DockPanel>
+
+    <!-- ================= COPY FEEDBACK ================= -->
+    <Grid x:Name="CopyFeedbackOverlay" Panel.ZIndex="1000"
+          Visibility="Collapsed" Opacity="0" IsHitTestVisible="False">
+      <Rectangle Fill="#B305080E"/>
+      <Ellipse Width="520" Height="240" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Ellipse.Fill>
+          <RadialGradientBrush>
+            <GradientStop Color="#3D2E9BFF" Offset="0"/>
+            <GradientStop Color="#002E9BFF" Offset="1"/>
+          </RadialGradientBrush>
+        </Ellipse.Fill>
+      </Ellipse>
+
+      <Border x:Name="CopyFeedbackCard" HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="260" MaxWidth="440" Padding="24,20" CornerRadius="14"
+              Background="#F2111A27" BorderBrush="#2A3B52" BorderThickness="1"
+              RenderTransformOrigin="0.5,0.5" Opacity="0">
+        <Border.RenderTransform>
+          <TransformGroup>
+            <ScaleTransform x:Name="CopyFeedbackScale" ScaleX="0.92" ScaleY="0.92"/>
+            <TranslateTransform x:Name="CopyFeedbackLift" Y="12"/>
+          </TransformGroup>
+        </Border.RenderTransform>
+        <Border.Effect>
+          <DropShadowEffect Color="Black" Opacity="0.55" BlurRadius="30" ShadowDepth="10"/>
+        </Border.Effect>
+
+        <StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <Grid x:Name="CopyFeedbackIcon" Width="46" Height="46" Margin="0,0,16,0"
+                  RenderTransformOrigin="0.5,0.5">
+              <Grid.RenderTransform>
+                <ScaleTransform x:Name="CopyFeedbackIconScale" ScaleX="0.65" ScaleY="0.65"/>
+              </Grid.RenderTransform>
+              <Ellipse Fill="#14263B"/>
+              <Ellipse Stroke="#2E9BFF" StrokeThickness="1.3" Opacity="0.9"/>
+              <Ellipse Width="34" Height="34" Stroke="#2E9BFF" StrokeThickness="1" Opacity="0.18"/>
+              <Viewbox Width="22" Height="22">
+                <Path Data="M2,9 L7,14 L16,4" Stroke="#7FD0FF" StrokeThickness="2.4"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+              </Viewbox>
+            </Grid>
+
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock x:Name="CopyFeedbackTitle" Text="Copied" FontSize="16"
+                         FontWeight="SemiBold" Foreground="#E6EEF6"/>
+              <TextBlock x:Name="CopyFeedbackSubtitle" Text="Copied to the clipboard"
+                         FontSize="10.5" Foreground="#8EA0B4" Margin="0,4,0,0"
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </StackPanel>
+
+          <Border x:Name="CopyFeedbackPreview" Visibility="Collapsed" Margin="0,14,0,0"
+                  CornerRadius="6" BorderBrush="#2A3B52" BorderThickness="1"
+                  Background="{StaticResource PreviewChecker}" ClipToBounds="True">
+            <Image x:Name="CopyFeedbackPreviewImage" MaxWidth="320" MaxHeight="190"
+                   Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+          </Border>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
 </Window>

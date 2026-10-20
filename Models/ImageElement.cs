@@ -29,6 +29,8 @@ public class ImageElement : DesignElement
     private double _cornerRadius;
     private ImageFitMode _fitMode = ImageFitMode.Fill;
     private Brush? _imageBrush;
+    private ImageSource? _alphaSource;
+    private bool? _hasTransparency;
 
     public ImageElement()
     {
@@ -57,6 +59,20 @@ public class ImageElement : DesignElement
 
     /// <summary>Adjusted raster used for display, sampling and export.</summary>
     public ImageSource? DisplaySource => _displaySource ?? _source;
+
+    /// <summary>True when the original raster has a meaningful transparent area.</summary>
+    public bool HasTransparency
+    {
+        get
+        {
+            if (ReferenceEquals(_alphaSource, _source) && _hasTransparency.HasValue)
+                return _hasTransparency.Value;
+
+            _alphaSource = _source;
+            _hasTransparency = ImageAlphaService.HasTransparency(_source as BitmapSource);
+            return _hasTransparency.Value;
+        }
+    }
 
     /// <summary>Rebuild the adjusted raster after photo settings or the base image changed.</summary>
     public void RefreshPhotoPreview()

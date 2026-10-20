@@ -283,7 +283,12 @@ public class TextElement : DesignElement
 
     public FontStyle FontStyle => _isItalic ? FontStyles.Italic : FontStyles.Normal;
 
-    public bool IsRtl => DetectRtl(_text);
+    public bool IsRtl => _direction switch
+    {
+        TextDirection.Rtl => true,
+        TextDirection.Ltr => false,
+        _ => DetectRtl(_text),
+    };
 
     public FontFamily FontFamilyValue =>
         new(string.IsNullOrWhiteSpace(_fontFamilyName) ? "Segoe UI" : _fontFamilyName);

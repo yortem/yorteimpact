@@ -119,6 +119,8 @@
                     IsChecked="True" Click="GeneralTab_Click"/>
       <ToggleButton x:Name="IntegrationsTabBtn" Style="{StaticResource TabBtn}" Content="Integrations"
                     Click="IntegrationsTab_Click"/>
+      <ToggleButton x:Name="AiTabBtn" Style="{StaticResource TabBtn}" Content="AI"
+                    Click="AiTab_Click"/>
     </StackPanel>
 
     <!-- ============ GENERAL TAB ============ -->
@@ -204,6 +206,76 @@
                          Foreground="{StaticResource Accent}">pixabay.com/api</Hyperlink>
               <Run Text="."/>
             </TextBlock>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Grid>
+
+    <!-- ============ AI TAB ============ -->
+    <Grid x:Name="AiTab" Visibility="Collapsed">
+      <StackPanel>
+        <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
+                BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="AI CANVAS ASSISTANT" FontSize="10" FontWeight="Bold"
+                       Foreground="{StaticResource Muted}"/>
+            <TextBlock FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,14"
+                       TextWrapping="Wrap"
+                       Text="The assistant reads the current canvas and applies changes to the open tab."/>
+
+            <TextBlock Text="Provider" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,6"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+              <ToggleButton x:Name="AiGeminiBtn" Style="{StaticResource TabBtn}"
+                            Content="Google Gemini" Click="AiProvider_Click"/>
+              <ToggleButton x:Name="AiOpenAiBtn" Style="{StaticResource TabBtn}"
+                            Content="OpenAI-compatible" Click="AiProvider_Click"/>
+            </StackPanel>
+
+            <Grid Margin="0,0,0,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="Base URL" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
+                <TextBox x:Name="AiBaseUrlBox" FontSize="12" Background="#05080E" Foreground="#E6EEF6"
+                         BorderBrush="#223248" BorderThickness="1" Padding="9,8"
+                         CaretBrush="{StaticResource Accent}" FontFamily="Consolas"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="Model" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
+                <TextBox x:Name="AiModelBox" FontSize="12" Background="#05080E" Foreground="#E6EEF6"
+                         BorderBrush="#223248" BorderThickness="1" Padding="9,8"
+                         CaretBrush="{StaticResource Accent}" FontFamily="Consolas"/>
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Text="API key" FontSize="10" Foreground="{StaticResource Muted}" Margin="1,0,0,5"/>
+            <PasswordBox x:Name="AiKeyBox" FontSize="12" Background="#05080E" Foreground="#E6EEF6"
+                         BorderBrush="#223248" BorderThickness="1" Padding="9,8"
+                         CaretBrush="{StaticResource Accent}" FontFamily="Consolas"/>
+            <TextBlock Text="Stored encrypted for the current Windows user."
+                       FontSize="10" Foreground="{StaticResource Muted}" Margin="2,7,0,0"/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+              <Button x:Name="AiTestBtn" Content="Test connection" Padding="12,7"
+                      Background="#111A27" Foreground="#C3CFDC" BorderBrush="#223248"
+                      BorderThickness="1" Cursor="Hand" Click="AiTest_Click"/>
+              <TextBlock x:Name="AiTestText" FontSize="11" Foreground="{StaticResource Muted}"
+                         VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Border Height="1" Background="#1A2636" Margin="0,16,0,14"/>
+
+            <TextBlock Text="Design refinement" FontSize="10"
+                       Foreground="{StaticResource Muted}" Margin="1,0,0,6"/>
+            <ToggleButton x:Name="AiTwoPassBtn" Style="{StaticResource TabBtn}"
+                          Content="Two-pass review" HorizontalAlignment="Left"
+                          ToolTip="Create in the first pass, then review and fix the result in a second pass."/>
+            <TextBlock Text="A second pass reviews the rendered result and fixes spacing, overlaps, contrast and RTL layout. Slower, but better for full layouts."
+                       FontSize="10.5" Foreground="{StaticResource Muted}"
+                       Margin="2,7,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
       </StackPanel>

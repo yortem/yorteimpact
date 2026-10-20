@@ -152,7 +152,7 @@
 
     <Popup x:Name="SliderPopup" PlacementTarget="{Binding ElementName=Box}"
            Placement="Bottom" HorizontalOffset="-80" VerticalOffset="2"
-           StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+           StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
       <Border Background="#111A27" BorderBrush="#223248" BorderThickness="1"
               CornerRadius="4" Padding="10,8" Margin="0,4,8,8">
         <Border.Effect>

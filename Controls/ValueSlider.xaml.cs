@@ -10,9 +10,9 @@ using System.Windows.Media;
 namespace YorteImpact.Controls;
 
 /// <summary>
-/// Compact 0..N numeric field with up/down steppers and a dropdown that opens a
-/// slider. Used by the attribute toolbar so any percentage
-/// value (transparency, corner, soft edge, …) can be dragged or typed.
+/// Compact 0..N numeric field with up/down steppers and a transient slider.
+/// Press-drag the number to scrub the value; releasing closes the slider.
+/// Double-click or Ctrl+A selects the text for typing.
 /// </summary>
 public partial class ValueSlider : UserControl
 {
@@ -20,6 +20,10 @@ public partial class ValueSlider : UserControl
     private double _value;
     private int _decimals = 2;
     private static readonly HashSet<ValueSlider> OpenPopups = new();
+    private bool _scrubTracking;
+    private bool _scrubActive;
+    private Point _scrubStart;
+    private double _scrubStartValue;
 
     public ValueSlider()
     {
@@ -28,7 +32,10 @@ public partial class ValueSlider : UserControl
         InlineSlider.ValueChanged += OnSliderChanged;
         Box.TextChanged += OnBoxChanged;
         Box.KeyDown += OnBoxKeyDown;
-        Box.PreviewMouseLeftButtonUp += Box_MouseUp;
+        Box.PreviewMouseLeftButtonDown += Box_PreviewMouseDown;
+        Box.PreviewMouseMove += Box_PreviewMouseMove;
+        Box.PreviewMouseLeftButtonUp += Box_PreviewMouseUp;
+        Box.LostMouseCapture += (_, _) => EndScrub(close: true);
         Box.LostFocus += (_, _) => CommitBoxText();
         PreviewKeyDown += OnValueKeyDown;
         Slider.PreviewKeyDown += OnValueKeyDown;
@@ -47,7 +54,12 @@ public partial class ValueSlider : UserControl
             }
             OpenPopups.Add(this);
         };
-        SliderPopup.Closed += (_, _) => OpenPopups.Remove(this);
+        SliderPopup.Closed += (_, _) =>
+        {
+            OpenPopups.Remove(this);
+            EndScrub(close: false);
+        };
+        Slider.PreviewMouseLeftButtonUp += (_, _) => SliderPopup.IsOpen = false;
         Unloaded += (_, _) =>
         {
             SliderPopup.IsOpen = false;
@@ -237,6 +249,14 @@ public partial class ValueSlider : UserControl
     /// <summary>Up/Down changes the value from any part of the control (field, arrows or slider).</summary>
     private void OnValueKeyDown(object sender, KeyEventArgs e)
     {
+        if (!_inline && e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            Box.Focus();
+            Box.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
         double step = Step > 0 ? Step : 1;
         if (e.Key == Key.Up) { Nudge(+step); e.Handled = true; }
         else if (e.Key == Key.Down) { Nudge(-step); e.Handled = true; }
@@ -244,9 +264,64 @@ public partial class ValueSlider : UserControl
 
     private void Nudge(double delta) => SetValue(_value + delta, raise: true, forceBox: true);
 
-    /// <summary>Clicking the number field opens the fine-tune slider; the field keeps focus for typing.</summary>
-    private void Box_MouseUp(object sender, MouseButtonEventArgs e)
+    private void Box_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left) SliderPopup.IsOpen = true;
+        if (e.ChangedButton != MouseButton.Left || _inline) return;
+
+        if (e.ClickCount >= 2)
+        {
+            EndScrub(close: true);
+            Box.Focus();
+            Box.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
+        _scrubTracking = true;
+        _scrubActive = false;
+        _scrubStart = e.GetPosition(this);
+        _scrubStartValue = _value;
+        Box.Focus();
+        Box.CaptureMouse();
+        int caret = Box.GetCharacterIndexFromPoint(e.GetPosition(Box), true);
+        if (caret >= 0) Box.CaretIndex = caret;
+        e.Handled = true;
+    }
+
+    private void Box_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_scrubTracking || e.LeftButton != MouseButtonState.Pressed || _inline) return;
+
+        var pos = e.GetPosition(this);
+        if (!_scrubActive)
+        {
+            if (Math.Abs(pos.X - _scrubStart.X) < 3) return;
+            _scrubActive = true;
+            SliderPopup.IsOpen = true;
+            Box.CaptureMouse();
+        }
+
+        double range = Slider.Maximum - Slider.Minimum;
+        if (range <= 0) return;
+        double track = Slider.Width > 0 ? Slider.Width : 190;
+        double delta = (pos.X - _scrubStart.X) / track * range;
+        SetValue(_scrubStartValue + delta, raise: true, forceBox: true);
+        e.Handled = true;
+    }
+
+    private void Box_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_scrubTracking) return;
+        bool wasActive = _scrubActive;
+        EndScrub(close: true);
+        if (wasActive) e.Handled = true;
+    }
+
+    private void EndScrub(bool close)
+    {
+        _scrubTracking = false;
+        _scrubActive = false;
+        if (Box.IsMouseCaptured) Box.ReleaseMouseCapture();
+        if (close) SliderPopup.IsOpen = false;
     }
 }

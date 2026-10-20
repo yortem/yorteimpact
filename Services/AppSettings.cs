@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using YorteImpact.Services.Ai;
 
 namespace YorteImpact.Services;
 
@@ -42,6 +43,12 @@ public sealed class AppSettings
     /// </summary>
     public string PixabayApiKey { get; set; } = "";
 
+    /// <summary>
+    /// AI canvas assistant connection. The API key is encrypted with DPAPI by
+    /// <see cref="Save"/> and decrypted by <see cref="Load"/>.
+    /// </summary>
+    public AiProviderSettings Ai { get; set; } = new();
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "YorteImpact", "settings.json");
@@ -51,8 +58,16 @@ public sealed class AppSettings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath))
-                       ?? new AppSettings();
+            {
+                var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath));
+                if (settings is not null)
+                {
+                    settings.Ai ??= new AiProviderSettings();
+                    settings.Ai.Normalize();
+                    settings.Ai.ApiKey = AiKeyProtector.Unprotect(settings.Ai.ApiKey);
+                    return settings;
+                }
+            }
         }
         catch
         {
@@ -63,8 +78,12 @@ public sealed class AppSettings
 
     public void Save()
     {
+        Ai ??= new AiProviderSettings();
+        Ai.Normalize();
+        string plainKey = Ai.ApiKey;
         try
         {
+            Ai.ApiKey = AiKeyProtector.Protect(plainKey);
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             File.WriteAllText(FilePath,
                 JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
@@ -72,6 +91,10 @@ public sealed class AppSettings
         catch
         {
             // Settings are best-effort; never crash the editor over them.
+        }
+        finally
+        {
+            Ai.ApiKey = plainKey;
         }
     }
 }

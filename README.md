@@ -20,6 +20,7 @@ WPF on .NET 8.
 - Slice-based copy, cut and export; transparent PNG output.
 - Image import from the clipboard or by drag-and-drop.
 - Non-destructive photo adjustments and preset thumbnails for images.
+- AI canvas assistant that applies validated JSON commands to the active tab.
 - Dark, compact interface with a resizable inspector.
 
 ## Requirements
@@ -37,10 +38,10 @@ dotnet run
 The editor opens on a **default canvas** (2000 × 2000, white). Change the
 startup default in **Settings** (the Settings button in the top bar, or
 `Ctrl+,`); the value is stored in `%AppData%\YorteImpact\settings.json`.
-Settings has two tabs: **General** for the startup canvas and background, and
-**Integrations** for external services — the first one is **Pixabay**, the
-photo library used by the Elements panel. Settings also includes a direct link
-to the project's GitHub repository.
+Settings has three tabs: **General** for the startup canvas and background,
+**Integrations** for external services (the **Pixabay** photo library used by
+the Elements panel), and **AI** for the canvas assistant provider. Settings
+also includes a direct link to the project's GitHub repository.
 
 The editor also remembers its window size, position and maximized state
 between launches.
@@ -79,8 +80,8 @@ project.
 
 ### Top bar
 
-New, Open, Save / Save As, Copy for AI, project name and canvas size, zoom
-controls and Settings.
+New, Open, Save / Save As, Copy for AI, Copy as image, project name and canvas
+size, zoom controls and Settings.
 
 **Save** chooses the format from the dialog's file type:
 
@@ -165,6 +166,11 @@ edge:
 Value fields use a near-black borderless style; card titles are brighter than
 the muted field labels. The inspector has a thin dark scrollbar.
 
+Press and drag a number field left or right to scrub its value. The fine-tune
+slider appears while dragging and closes when you release. Double-click the
+field to select its text, or use `Ctrl+A`; a single click places the caret for
+typing.
+
 ### Photo tab
 
 The right panel has tabs for **Inspector**, **Photo** and **Grid**. The Photo tab is enabled when an image is selected.
@@ -193,6 +199,66 @@ The tab includes:
   sit above the preset grid.
 
 Photo settings are saved in `.yimpact` and are part of undo/redo.
+
+### AI assistant
+
+The sparkle button at the bottom of the left rail opens a chat panel docked
+above the status bar. The assistant receives a compact JSON description of the
+active tab, the full artboard as a PNG (downscaled to 1280 px wide when needed)
+and your instruction. It returns a validated command batch covering shapes,
+text, images, geometry, styles, photo adjustments, order, alignment,
+distribution and canvas size/background.
+
+- Each tab keeps its own chat history in memory for the session; it is not
+  saved in `.yimpact`.
+- `Enter` sends and `Shift+Enter` inserts a newline. While a request is running,
+  the header shows **AI is thinking…**, an animated progress bar appears above
+  the input, and a thinking bubble is added to the chat. Errors appear as red
+  messages.
+- AI coordinates are measured from the artboard's top-left corner `(0,0)`, not
+  from the pasteboard, so generated elements land where the design is.
+  Hebrew and Arabic text is created right-to-left and right-aligned inside a
+  text column; bullet and checkmark lines are grouped so they start on the
+  right edge.
+- Chat replies are short natural summaries of what changed, not a
+  per-element list of commands.
+- Before each request, images are checked for transparency. A cutout with a
+  transparent background is marked `transparent=true`, and the assistant is
+  told not to put a white card or an artificial background behind it.
+- **Two-pass review** is on by default in **Settings → AI**. The first pass
+  creates the layout; the second pass receives the rendered result and fixes
+  spacing, overlaps, contrast, hierarchy and RTL problems. Turn it off for
+  faster, single-pass edits.
+- The prompt carries layout rules for safe margins, type hierarchy, spacing,
+  palette/contrast, text/image overlap and dashboard or banner composition,
+  plus a default Hebrew/Latin font. For promo banners it is encouraged to add
+  a background/panel, accent shapes, a price badge when a price is given, and
+  a rounded CTA instead of leaving text and a photo on a plain canvas.
+- Background panels can be placed behind existing content, so text and the
+  product image stay on top. Prices, names and numbers from the request are
+  preserved exactly, and the assistant does not invent a price when none was
+  requested.
+- A send is one undo step, including both passes. Coordinates stay within
+  200 px of the artboard, colors accept `#RRGGBB` or `#AARRGGBB`, the canvas
+  paint layer is read-only, and delete/clear commands ask for confirmation
+  before anything is removed.
+- If the canvas changes while a request is running - geometry, styles, text or
+  images - the pending batch is dropped instead of landing on a canvas that no
+  longer matches the plan.
+- Photo edits remain non-destructive: the original raster is preserved and the
+  adjusted render is refreshed.
+- Drag the strip at the top of the panel to resize it, or use **Hide**; the AI
+  toggle in the left rail brings it back. **Clear** empties the active tab's
+  chat.
+- Configure the provider in **Settings → AI**: Google Gemini or any
+  OpenAI-compatible endpoint, with editable base URL and model. The API key is
+  stored encrypted for the current Windows user, and **Test connection** checks
+  the endpoint before use.
+
+**Copy for AI** in the top bar remains a separate feature: it copies a text
+brief for pasting into an external chat, without changing the canvas.
+**Copy as image** copies the artboard as one image at its original pixel size,
+without pasteboard chrome, selection handles or slice markers.
 
 ## Canvas objects
 
@@ -325,9 +391,10 @@ saved as editable elements in `.yimpact`.
 ### Elements
 
 Open the **Elements** tool (`I`) to browse ready-made shapes, icons and library
-components. A secondary sidebar slides open beside the tool rail, pushing the
-canvas area in step so your work remains centered and visible. Closing the
-panel and opening it again always starts from the category tiles.
+components. A secondary sidebar eases open beside the tool rail, pushing the
+canvas area in step so your work remains centered and visible. The slide uses a
+decelerating curve and a subtle content drift rather than a hard width jump.
+Closing the panel and opening it again always starts from the category tiles.
 
 - **Categories** — 2-column tiles categorize available items: the **Iconify
   Icons** library and the **Pixabay Photos** library.
@@ -391,7 +458,12 @@ canvas as regular image objects.
   editing W or H in the Inspector updates the other value too.
 - **Ctrl+click** or **Shift+click** adds an object to the current selection.
   Drag any selected object to move the whole group; resize and rotate stay
-  available for a single selection.
+  available for a single selection. With several objects selected, the tool-bar
+  style controls (fill, corner radius, border, shadow, opacity, soft edge, text
+  and line style) apply to every selected object of that type. Only the value
+  you changed is written: turning one text style on or off leaves the other
+  text styles alone, and border or shadow toggles skip objects that already
+  have the state you asked for.
 - **Alt+drag** or **Ctrl+drag** duplicates the selected object or group and
   drags the copy; the original stays. A plain Ctrl+click still just adds to the
   selection. **Ctrl+Shift+drag** duplicates and snaps the copy to the visible
@@ -461,15 +533,18 @@ Close it by clicking the first point,
 double-clicking, or pressing Enter; Esc cancels and Backspace removes the last
 anchor. Bezier selections copy with transparent pixels outside the path.
 Each new slice replaces the prior slice; enable **Add slice** to accumulate
-several regions. Click a region to activate it.
+several regions. While dragging, a live `W × H` readout follows the pointer,
+like shape drawing. Click a visible region to activate it; a plain click on the
+background clears the active slice and prepares the next cut.
 
 - `Ctrl+C` copies the active slice area.
 - `Ctrl+X` cuts it out.
 - `Ctrl+R` crops the project to the active slice bounds (content outside the
   crop stays in the document).
 - `Delete` cuts the slice area out of the selected object.
-- `Space` shows/hides the slice markers (hidden markers are inactive). Slices
-  remain visible when switching to Pick or another tool; Esc clears them.
+- `Space` shows/hides the slice markers (hidden markers are inactive). A click
+  while they are hidden resets the active slice instead of restoring them.
+  Slices remain visible when switching to Pick or another tool; Esc clears them.
 
 
 ### Copy / Cut / Paste
@@ -509,8 +584,10 @@ several regions. Click a region to activate it.
 - Color changes are **previewed live on the canvas** while the picker is open.
   **OK** keeps the preview, **Cancel** restores the previous color. The whole
   picker session is one undo step.
-- `Ctrl+F` changes the selected shape, line or text color; a selected image is
-  recolored while keeping its transparency, and a group recolors its shapes.
+- `Ctrl+F` changes the selected shape, line or text color; with several objects
+  selected it changes all of them in one step, whatever mix of shapes, texts
+  and lines is selected. A selected image is recolored while
+  keeping its transparency, and a group recolors its shapes.
   With no selection it changes the active tool's primary color (shape fill, line
   stroke, text color or brush color); other tools open the canvas background picker.
 - The **Background remover** erases a connected color (magic wand) or the
@@ -561,6 +638,10 @@ extra border pixel). Transparent canvases export with alpha. Photo adjustments
 and effects are baked into the exported pixels; the original embedded image is
 not changed.
 
+**Copy as image** in the top bar puts the same whole-canvas render on the OS
+clipboard as a bitmap and PNG, ready to paste into another app. It always uses
+the original canvas size, regardless of the current zoom.
+
 ### Copy for AI
 
 **Copy for AI** in the top bar copies a compact text brief of the current
@@ -568,6 +649,10 @@ sketch: canvas size, background, palette, and every element in back-to-front
 order with its position, size, text and visual properties. Embedded image data
 is omitted to keep the text small; export the canvas as PNG and attach it for
 the exact visual reference.
+
+Both copy buttons dim the whole window and show a centered confirmation for
+about one second after a successful copy, then fade it away. **Copy as image**
+also shows a compact preview of the copied render in that confirmation.
 
 ## Keyboard shortcuts
 

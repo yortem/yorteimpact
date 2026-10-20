@@ -21,6 +21,7 @@ using Microsoft.Win32;
 using YorteImpact.Controls;
 using YorteImpact.Models;
 using YorteImpact.Services;
+using YorteImpact.Services.Ai;
 using YorteImpact.ViewModels;
 
 namespace YorteImpact;
@@ -66,6 +67,7 @@ public partial class MainWindow : Window
         public double Zoom { get; set; }
         public double ScrollX { get; set; }
         public double ScrollY { get; set; }
+        public AiChatService AiChat { get; } = new();
     }
 
     private sealed class BrushPresetItem
@@ -89,8 +91,12 @@ public partial class MainWindow : Window
 
     /// <summary>Width of the Elements panel (must match the XAML).</summary>
     private const double ElementsSidebarWidth = 280;
-    private static readonly Duration ElementsSidebarDuration = new(TimeSpan.FromMilliseconds(220));
+    private static readonly Duration ElementsSidebarOpenDuration = new(TimeSpan.FromMilliseconds(260));
+    private static readonly Duration ElementsSidebarCloseDuration = new(TimeSpan.FromMilliseconds(210));
     private int _elementsSidebarVersion;
+    private bool _elementsSidebarAnimating;
+    private bool _viewportSyncQueued;
+    private int _copyFeedbackVersion;
 
     [DllImport("user32.dll")]
     private static extern uint GetClipboardSequenceNumber();
@@ -151,6 +157,15 @@ public partial class MainWindow : Window
     private string? _projectPath;
     private UndoService _undo = new();
     private bool _inspectorArmed;
+
+    // AI chat panel
+    private AiChatService? _boundAiChat;
+    private TaskCompletionSource<bool>? _aiConfirm;
+    private bool _aiPanelVisible;
+    private bool _aiPreparing;
+    private bool _aiResizing;
+    private double _aiResizeStartY;
+    private double _aiResizeStartHeight;
 
     // Paintbrush
     private readonly BrushSettings _brushSettings = new();
@@ -255,6 +270,8 @@ public partial class MainWindow : Window
         _suppressPhoto = true;
         _suppressGrid = true;
         InitializeComponent();
+        _settings.Ai ??= new AiProviderSettings();
+        _settings.Ai.Normalize();
         PhotoPresetList.ItemsSource = _photoPresets;
         ShadowPresetList.ItemsSource = _shadowPresets;
         TransparencyPresetList.ItemsSource = _transparencyPresets;
@@ -333,6 +350,7 @@ public partial class MainWindow : Window
         };
         Closing += Window_Closing;
         RebuildTabs();
+        BindAiChat();
         UpdateEmptyState();
         OnSelectionChanged();
         UpdateArtboardFill();
@@ -357,7 +375,9 @@ public partial class MainWindow : Window
             tb.GotFocus += (_, _) => _inspectorArmed = true; // next keystroke snapshots first
         // Any click on the pick-tool settings (sliders, steppers) arms one undo snapshot.
         AttrPickPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
+        AttrRectPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         AttrTextPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
+        AttrLinePanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         InspectorPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         PhotoPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         ShadowCard.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
@@ -435,6 +455,8 @@ public partial class MainWindow : Window
 
         CommitTextEdit();
         if (_activeTab >= 0) StoreActiveTabState();
+        if (_activeTab >= 0 && _activeTab < _tabs.Count) _tabs[_activeTab].AiChat.Cancel();
+        ResolveAiConfirm(false);
 
         if (_brushEngine.IsActive) EndBrushStroke();
         BrushCursor.Visibility = Visibility.Collapsed;
@@ -468,6 +490,7 @@ public partial class MainWindow : Window
         UpdateZoomUI();
         RebuildTabs();
         UpdateEmptyState();
+        BindAiChat();
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
@@ -729,6 +752,8 @@ public partial class MainWindow : Window
         if (index < 0 || index >= _tabs.Count) return;
         var tab = _tabs[index];
         if (!ConfirmCloseTab(tab, index)) return;
+        tab.AiChat.Cancel();
+        if (ReferenceEquals(_boundAiChat, tab.AiChat)) ResolveAiConfirm(false);
 
         bool wasActive = index == _activeTab;
         if (wasActive)
@@ -761,6 +786,8 @@ public partial class MainWindow : Window
     {
         if (_windowClosing) return;
 
+        ResolveAiConfirm(false);
+        foreach (var tab in _tabs) tab.AiChat.Cancel();
         CommitTextEdit();
         foreach (var tab in _tabs.ToList())
         {
@@ -824,6 +851,7 @@ public partial class MainWindow : Window
         RebuildTabs();
         UpdateEmptyState();
         SetTool(ActiveTool.Pick);
+        BindAiChat();
         StatusText.Text = "No project open — create one, or paste/drop an image.";
     }
 
@@ -1356,9 +1384,10 @@ public partial class MainWindow : Window
 
     private void PasteStyle_Click(object sender, RoutedEventArgs e)
     {
-        if (_styleClipboard == null || _doc.Selected is not { } target) return;
+        if (_styleClipboard == null || _doc.SelectionCount == 0) return;
         PushUndo();
-        _styleClipboard.CopyStyleTo(target);
+        foreach (var target in _doc.SelectedElements.ToList())
+            _styleClipboard.CopyStyleTo(target);
         RefreshInspector();
         RefreshShapeToolbar();
         RefreshTextToolbar();
@@ -1568,7 +1597,6 @@ public partial class MainWindow : Window
             }
             _drag = DragMode.Slice;
             _dragStartCanvas = pos;
-            _sliceVisible = true; // a fresh drag always shows its marker
             _pendingSlice = new Rect(pos, new Size(0, 0));
             RefreshSliceLayer();
             Pasteboard.CaptureMouse();
@@ -1916,7 +1944,8 @@ public partial class MainWindow : Window
     {
         if (_drag != DragMode.Paint)
             BrushCursor.Visibility = Visibility.Collapsed;
-        if (_drag is DragMode.Draw or DragMode.DrawLine or DragMode.Resize || _lineDraft.Count > 0)
+        if (_drag is DragMode.Draw or DragMode.DrawLine or DragMode.Resize or DragMode.Slice
+            || _lineDraft.Count > 0)
             HideDrawSizeTip();
     }
 
@@ -1964,6 +1993,7 @@ public partial class MainWindow : Window
             _pendingSlice = null;
             if (rect.Width >= 5 && rect.Height >= 5)
             {
+                _sliceVisible = true;
                 // Replace by default; only the "+Add slice" toggle accumulates.
                 if (!_sliceAddMode) _slices.Clear();
                 var region = new SliceRegion { Rect = rect, Name = $"slice{_slices.Count + 1}" };
@@ -1975,13 +2005,24 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Plain click: activate the topmost region under the cursor, if any.
+                // A plain click is a reset. When markers are visible it can
+                // also activate the region under the cursor; hidden regions
+                // stay hidden and are not reactivated by a click.
                 var pos = e.GetPosition(Pasteboard);
-                var hit = _slices.LastOrDefault(r => r.SelectionGeometry?.FillContains(pos) ?? r.Rect.Contains(pos));
+                var hit = _sliceVisible
+                    ? _slices.LastOrDefault(r => r.SelectionGeometry?.FillContains(pos) ?? r.Rect.Contains(pos))
+                    : null;
                 if (hit != null)
                 {
                     _activeSlice = hit;
                     StatusText.Text = $"Active slice {hit.Rect.Width:F0}×{hit.Rect.Height:F0} @({hit.Rect.X:F0},{hit.Rect.Y:F0}).";
+                }
+                else
+                {
+                    _activeSlice = null;
+                    StatusText.Text = _sliceVisible
+                        ? "Slice cleared — drag to draw the next one."
+                        : "Ready for a new slice — markers are hidden (Space shows them).";
                 }
             }
             RefreshSliceLayer();
@@ -2496,7 +2537,11 @@ public partial class MainWindow : Window
 
     private void DoSlice(Point pos)
     {
-        _pendingSlice = NormalizedRect(_dragStartCanvas, pos);
+        var pending = NormalizedRect(_dragStartCanvas, pos);
+        _pendingSlice = pending;
+        if (!_sliceVisible && (pending.Width >= 5 && pending.Height >= 5))
+            _sliceVisible = true;
+        ShowDrawSizeTip(pending);
         RefreshSliceLayer();
     }
 
@@ -3541,6 +3586,34 @@ public partial class MainWindow : Window
     private void Viewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (Viewport.ViewportWidth <= 0 || Viewport.ViewportHeight <= 0) return;
+        // The Elements panel animates its width, so the viewport changes every
+        // frame. Defer the clamp/scroll work instead of forcing a nested layout
+        // inside SizeChanged, which makes the slide visibly stutter.
+        if (_elementsSidebarAnimating)
+        {
+            // Resize the host immediately so the canvas follows every frame,
+            // but defer the forced layout/scroll work to after this pass.
+            LayoutViewport();
+            QueueViewportSync();
+            return;
+        }
+        SyncViewportToSize();
+    }
+
+    private void QueueViewportSync()
+    {
+        if (_viewportSyncQueued) return;
+        _viewportSyncQueued = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            _viewportSyncQueued = false;
+            SyncViewportToSize();
+        }));
+    }
+
+    private void SyncViewportToSize()
+    {
+        if (Viewport.ViewportWidth <= 0 || Viewport.ViewportHeight <= 0) return;
         // Keep whatever the user is looking at while the host re-clamps.
         var centerModel = ViewportCenterModel();
         var centerView = new Point(Viewport.ViewportWidth / 2, Viewport.ViewportHeight / 2);
@@ -3742,7 +3815,8 @@ public partial class MainWindow : Window
             if (_drag == DragMode.Paint) EndBrushStroke();
             if (_drag == DragMode.Draw) { DrawShapeVisual.Visibility = Visibility.Collapsed; HideDrawSizeTip(); }
             if (_drag == DragMode.DrawLine) ResetLineDraft();
-            if (_drag == DragMode.Resize) HideDrawSizeTip();
+            if (_drag == DragMode.Resize || _drag == DragMode.Slice) HideDrawSizeTip();
+            if (_drag == DragMode.Slice) { _pendingSlice = null; RefreshSliceLayer(); }
             if (_drag != DragMode.None) { _drag = DragMode.None; _moveUndoPending = false; HideSnapGuides(); Pasteboard.ReleaseMouseCapture(); }
             else if (_tool != ActiveTool.Pick) SetTool(ActiveTool.Pick);
             else
@@ -3780,7 +3854,7 @@ public partial class MainWindow : Window
     /// Put the copied pixels on the OS clipboard so other programs (Paint, Word,
     /// browsers, Google Images, …) can paste them: a DIB/Bitmap plus a PNG stream.
     /// </summary>
-    private static void SetSystemClipboardImage(BitmapSource bmp)
+    private static bool SetSystemClipboardImage(BitmapSource bmp)
     {
         try
         {
@@ -3795,10 +3869,12 @@ public partial class MainWindow : Window
             data.SetData("PNG", ms);
 
             Clipboard.SetDataObject(data, true); // keep after the app closes
+            return true;
         }
         catch
         {
             // The clipboard can be locked by another process; in-app copy still works.
+            return false;
         }
     }
 
@@ -4203,6 +4279,9 @@ public partial class MainWindow : Window
         var dlg = new SettingsDialog(AppSettings.Load(), showIntegrations) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         _settings.PixabayApiKey = dlg.Settings.PixabayApiKey ?? "";
+        _settings.Ai = dlg.Settings.Ai?.Clone() ?? new AiProviderSettings();
+        _settings.Ai.Normalize();
+        RefreshAiModelLabel();
         StatusText.Text =
             $"Settings saved — default canvas {dlg.Settings.DefaultCanvasWidth}×{dlg.Settings.DefaultCanvasHeight} px on next launch.";
     }
@@ -4282,11 +4361,123 @@ public partial class MainWindow : Window
             string brief = AiBriefService.Build(_doc);
             Clipboard.SetText(brief);
             StatusText.Text = $"AI brief copied to the clipboard ({brief.Length:N0} characters).";
+            PlayCopyFeedback("Copied for AI", $"{brief.Length:N0} characters copied to the clipboard.");
         }
         catch (Exception ex)
         {
             StatusText.Text = "Could not copy the AI brief: " + ex.Message;
         }
+    }
+
+    private void CopyCanvasImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tabs.Count == 0)
+        {
+            StatusText.Text = "No project open — create or open one first.";
+            return;
+        }
+
+        try
+        {
+            CommitTextEdit();
+            ElementHost.UpdateLayout();
+
+            var artboard = _doc.ArtboardRect;
+            if (artboard.Width < 1 || artboard.Height < 1)
+            {
+                StatusText.Text = "Canvas is empty.";
+                return;
+            }
+
+            BitmapSource bmp = SliceExportService.RenderRegion(
+                ElementHost, artboard, ExportBackground, 1.0, 96);
+            if (!SetSystemClipboardImage(bmp))
+            {
+                StatusText.Text = "Could not write the canvas image to the clipboard. Try again.";
+                return;
+            }
+            StatusText.Text = $"Canvas copied as an image ({bmp.PixelWidth} × {bmp.PixelHeight} px).";
+            PlayCopyFeedback("Copied as image", $"{bmp.PixelWidth} × {bmp.PixelHeight} px copied to the clipboard.", bmp);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not copy the canvas: " + ex.Message;
+        }
+    }
+
+    private void PlayCopyFeedback(string title, string subtitle, BitmapSource? preview = null)
+    {
+        int version = ++_copyFeedbackVersion;
+        CopyFeedbackTitle.Text = title;
+        CopyFeedbackSubtitle.Text = subtitle;
+        CopyFeedbackPreviewImage.Source = preview;
+        CopyFeedbackPreview.Visibility = preview is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // Re-triggering while the overlay is still on screen should continue
+        // from its current frame instead of flashing back to zero.
+        double fromVeil = CopyFeedbackOverlay.Opacity;
+        double fromCard = CopyFeedbackCard.Opacity;
+        double fromScaleX = CopyFeedbackScale.ScaleX;
+        double fromScaleY = CopyFeedbackScale.ScaleY;
+        double fromLift = CopyFeedbackLift.Y;
+        double fromIconX = CopyFeedbackIconScale.ScaleX;
+        double fromIconY = CopyFeedbackIconScale.ScaleY;
+
+        CopyFeedbackOverlay.Visibility = Visibility.Visible;
+        CopyFeedbackOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+        CopyFeedbackCard.BeginAnimation(UIElement.OpacityProperty, null);
+        CopyFeedbackScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        CopyFeedbackScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        CopyFeedbackLift.BeginAnimation(TranslateTransform.YProperty, null);
+        CopyFeedbackIconScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        CopyFeedbackIconScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+
+        var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var back = new BackEase { Amplitude = 0.18, EasingMode = EasingMode.EaseOut };
+
+        var veil = ToastAnimation(fromVeil, 1, 0, 110, 650, 1000, easeOut, easeIn);
+        veil.Completed += (_, _) =>
+        {
+            if (version != _copyFeedbackVersion) return;
+            CopyFeedbackOverlay.Visibility = Visibility.Collapsed;
+            CopyFeedbackPreviewImage.Source = null;
+            CopyFeedbackPreview.Visibility = Visibility.Collapsed;
+        };
+        CopyFeedbackOverlay.BeginAnimation(UIElement.OpacityProperty, veil);
+
+        CopyFeedbackCard.BeginAnimation(UIElement.OpacityProperty,
+            ToastAnimation(fromCard, 1, 0, 140, 650, 1000, easeOut, easeIn));
+        CopyFeedbackScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            ToastAnimation(fromScaleX, 1, 1.035, 240, 650, 1000, back, easeIn));
+        CopyFeedbackScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            ToastAnimation(fromScaleY, 1, 1.035, 240, 650, 1000, back, easeIn));
+        CopyFeedbackLift.BeginAnimation(TranslateTransform.YProperty,
+            ToastAnimation(fromLift, 0, -4, 240, 650, 1000, back, easeIn));
+        CopyFeedbackIconScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            ToastAnimation(fromIconX, 1, 1, 260, 650, 1000, back, easeIn));
+        CopyFeedbackIconScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            ToastAnimation(fromIconY, 1, 1, 260, 650, 1000, back, easeIn));
+    }
+
+    private static DoubleAnimationUsingKeyFrames ToastAnimation(
+        double from, double peak, double end, int peakMs, int holdMs, int durationMs,
+        IEasingFunction easeOut, IEasingFunction easeIn)
+    {
+        var anim = new DoubleAnimationUsingKeyFrames
+        {
+            Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+            FillBehavior = FillBehavior.Stop,
+        };
+        anim.KeyFrames.Add(new LinearDoubleKeyFrame(from,
+            KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        anim.KeyFrames.Add(new EasingDoubleKeyFrame(peak,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(peakMs)), easeOut));
+        anim.KeyFrames.Add(new LinearDoubleKeyFrame(peak,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(holdMs))));
+        anim.KeyFrames.Add(new EasingDoubleKeyFrame(end,
+            KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(durationMs)), easeIn));
+        return anim;
     }
 
     private void SaveProjectAs_Click(object sender, RoutedEventArgs e) => SaveDocument(forceDialog: true);
@@ -4606,9 +4797,9 @@ public partial class MainWindow : Window
 
     private void AttrOpacity_ValueChanged(object sender, EventArgs e)
     {
-        if (_suppressInspector || _doc.Selected is not { } el) return;
+        if (_suppressInspector || _doc.SelectionCount == 0) return;
         ArmInspectorUndo();
-        el.Opacity = AttrOpacity.Value;
+        foreach (var el in _doc.SelectedElements) el.Opacity = AttrOpacity.Value;
     }
 
     private void AttrRatioLock_Click(object sender, RoutedEventArgs e)
@@ -4663,11 +4854,17 @@ public partial class MainWindow : Window
 
     private void AttrCorner_ValueChanged(object sender, EventArgs e)
     {
-        if (_suppressInspector || _doc.Selected is not { } el) return;
-        if (el.UseIndividualCornerRadii) return;
+        if (_suppressInspector) return;
+        var targets = _doc.SelectedElements
+            .Where(el => !el.UseIndividualCornerRadii && (el is ShapeElement || el is ImageElement))
+            .ToList();
+        if (targets.Count == 0) return;
         ArmInspectorUndo();
-        if (el is ShapeElement sh) sh.CornerRadius = AttrCorner.Value;
-        else if (el is ImageElement im) im.CornerRadius = AttrCorner.Value;
+        foreach (var el in targets)
+        {
+            if (el is ShapeElement shape) shape.CornerRadius = AttrCorner.Value;
+            else if (el is ImageElement image) image.CornerRadius = AttrCorner.Value;
+        }
     }
 
     private static double GetUniformCornerRadius(DesignElement element) => element switch
@@ -4688,31 +4885,45 @@ public partial class MainWindow : Window
 
     private void AttrCornerIndividual_Toggled(object sender, RoutedEventArgs e)
     {
-        if (_suppressInspector || _doc.Selected is not { } element) return;
+        if (_suppressInspector) return;
+        var targets = _doc.SelectedElements
+            .Where(element => element is ShapeElement || element is ImageElement)
+            .ToList();
+        if (targets.Count == 0) return;
+
         ArmInspectorUndo();
         bool enabled = AttrCornerIndividualCheck.IsChecked == true;
-        if (enabled && !element.UseIndividualCornerRadii)
-            element.IndividualCornerRadii = new CornerRadius(GetUniformCornerRadius(element));
-        element.UseIndividualCornerRadii = enabled;
+        foreach (var element in targets)
+        {
+            if (enabled && !element.UseIndividualCornerRadii)
+                element.IndividualCornerRadii = new CornerRadius(GetUniformCornerRadius(element));
+            element.UseIndividualCornerRadii = enabled;
+        }
         RefreshInspector();
         RefreshShapeToolbar();
     }
 
     private void AttrCornerIndividual_ValueChanged(object? sender, EventArgs e)
     {
-        if (_suppressInspector || sender is not ValueSlider slider || slider.Tag is not string corner
-            || _doc.Selected is not { } element || !element.UseIndividualCornerRadii) return;
+        if (_suppressInspector || sender is not ValueSlider slider || slider.Tag is not string corner) return;
+        var targets = _doc.SelectedElements
+            .Where(element => element.UseIndividualCornerRadii
+                && (element is ShapeElement || element is ImageElement))
+            .ToList();
+        if (targets.Count == 0) return;
+
         ArmInspectorUndo();
-        element.IndividualCornerRadii = SetCornerValue(element.IndividualCornerRadii, corner, slider.Value);
+        foreach (var element in targets)
+            element.IndividualCornerRadii = SetCornerValue(element.IndividualCornerRadii, corner, slider.Value);
         RefreshInspector();
         RefreshShapeToolbar();
     }
 
     private void AttrSoft_ValueChanged(object sender, EventArgs e)
     {
-        if (_suppressInspector || _doc.Selected is not { } el) return;
+        if (_suppressInspector || _doc.SelectionCount == 0) return;
         ArmInspectorUndo();
-        el.SoftEdge = AttrSoft.Value;
+        foreach (var el in _doc.SelectedElements) el.SoftEdge = AttrSoft.Value;
     }
 
     // ---------- line and arrow tool ----------
@@ -4734,11 +4945,11 @@ public partial class MainWindow : Window
     {
         if (_suppressLineToolbar || sender is not ToggleButton { Tag: string tag }
             || !Enum.TryParse<LinePattern>(tag, true, out var pattern)) return;
-        var target = SelectedLine;
-        if (target != null && target.Pattern != pattern)
+        var targets = SelectedLines;
+        if (targets.Any(line => line.Pattern != pattern))
         {
             PushUndo();
-            target.Pattern = pattern;
+            foreach (var line in targets) line.Pattern = pattern;
         }
         _settings.Line.Pattern = pattern.ToString();
         RefreshLineToolbar();
@@ -4750,16 +4961,15 @@ public partial class MainWindow : Window
         var parts = tag.Split(':', 2);
         if (parts.Length != 2 || !Enum.TryParse<LineEndpointStyle>(parts[1], true, out var cap)) return;
 
-        var target = SelectedLine;
+        var targets = SelectedLines;
         bool isStart = parts[0] == "Start";
-        if (target != null)
+        if (targets.Any(line => (isStart ? line.StartCap : line.EndCap) != cap))
         {
-            var current = isStart ? target.StartCap : target.EndCap;
-            if (current != cap)
+            PushUndo();
+            foreach (var line in targets)
             {
-                PushUndo();
-                if (isStart) target.StartCap = cap;
-                else target.EndCap = cap;
+                if (isStart) line.StartCap = cap;
+                else line.EndCap = cap;
             }
         }
         if (isStart) _settings.Line.StartCap = cap.ToString();
@@ -4769,14 +4979,15 @@ public partial class MainWindow : Window
 
     private void AttrLineColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedLine;
-        var current = target?.StrokeColor ?? ReadLineColor(_settings.Line.Color);
+        var targets = SelectedLines;
+        var current = (SelectedLine ?? targets.FirstOrDefault())?.StrokeColor
+            ?? ReadLineColor(_settings.Line.Color);
         var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        if (target != null && target.StrokeColor != dialog.SelectedColor)
+        if (targets.Any(line => line.StrokeColor != dialog.SelectedColor))
         {
             PushUndo();
-            target.StrokeColor = dialog.SelectedColor;
+            foreach (var line in targets) line.StrokeColor = dialog.SelectedColor;
         }
         _settings.Line.Color = ToHex(dialog.SelectedColor);
         RefreshLineToolbar();
@@ -4786,12 +4997,13 @@ public partial class MainWindow : Window
     private void AttrLineThickness_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressLineToolbar) return;
-        var target = SelectedLine;
-        if (target != null)
+        var targets = SelectedLines;
+        if (targets.Count > 0)
         {
-            if (Math.Abs(target.StrokeThickness - AttrLineThickness.Value) < 0.01) return;
+            if (targets.All(line => Math.Abs(line.StrokeThickness - AttrLineThickness.Value) < 0.01))
+                return;
             ArmInspectorUndo();
-            target.StrokeThickness = AttrLineThickness.Value;
+            foreach (var line in targets) line.StrokeThickness = AttrLineThickness.Value;
         }
         _settings.Line.Thickness = AttrLineThickness.Value;
         RefreshLineToolbar();
@@ -4800,12 +5012,14 @@ public partial class MainWindow : Window
     private void AttrLineCurve_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressLineToolbar) return;
-        var target = SelectedLine;
-        if (target is { IsFreehand: true })
+        var targets = SelectedLines
+            .Where(line => line.IsFreehand
+                && Math.Abs(line.CurveStrength - AttrLineCurve.Value) >= 0.01)
+            .ToList();
+        if (targets.Count > 0)
         {
-            if (Math.Abs(target.CurveStrength - AttrLineCurve.Value) < 0.01) return;
             ArmInspectorUndo();
-            target.CurveStrength = AttrLineCurve.Value;
+            foreach (var line in targets) line.CurveStrength = AttrLineCurve.Value;
         }
         _settings.Line.CurveStrength = AttrLineCurve.Value;
         RefreshLineToolbar();
@@ -4815,35 +5029,41 @@ public partial class MainWindow : Window
     {
         if (_suppressLineToolbar) return;
         bool enabled = AttrLineShadowCheck.IsChecked == true;
-        var target = SelectedLine;
-        if (target != null && (target.ShadowStyle != ShadowStyle.None) != enabled)
+        var targets = SelectedLines
+            .Where(line => (line.ShadowStyle != ShadowStyle.None) != enabled)
+            .ToList();
+        if (targets.Count > 0)
         {
             PushUndo();
-            if (enabled)
+            foreach (var line in targets)
             {
-                target.ApplyShadowPreset(ShadowStyle.Medium);
-                target.ShadowColor = ReadLineColor(_settings.Line.ShadowColor);
+                if (enabled)
+                {
+                    line.ApplyShadowPreset(ShadowStyle.Medium);
+                    line.ShadowColor = ReadLineColor(_settings.Line.ShadowColor);
+                }
+                else line.ShadowStyle = ShadowStyle.None;
             }
-            else target.ShadowStyle = ShadowStyle.None;
         }
         _settings.Line.Shadow = enabled;
-        if (target != null) RefreshInspector();
+        if (SelectedLines.Count > 0) RefreshInspector();
         RefreshLineToolbar();
     }
 
     private void AttrLineShadowColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedLine;
-        var current = target?.ShadowColor ?? ReadLineColor(_settings.Line.ShadowColor);
+        var targets = SelectedLines;
+        var current = (SelectedLine ?? targets.FirstOrDefault())?.ShadowColor
+            ?? ReadLineColor(_settings.Line.ShadowColor);
         var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        if (target != null && target.ShadowColor != dialog.SelectedColor)
+        if (targets.Any(line => line.ShadowColor != dialog.SelectedColor))
         {
             PushUndo();
-            target.ShadowColor = dialog.SelectedColor;
+            foreach (var line in targets) line.ShadowColor = dialog.SelectedColor;
         }
         _settings.Line.ShadowColor = ToHex(dialog.SelectedColor);
-        if (target != null) RefreshInspector();
+        if (targets.Count > 0) RefreshInspector();
         RefreshLineToolbar();
     }
 
@@ -4853,7 +5073,7 @@ public partial class MainWindow : Window
         _suppressLineToolbar = true;
         try
         {
-            var line = SelectedLine;
+            var line = SelectedLine ?? SelectedLines.FirstOrDefault();
             var defaults = _settings.Line;
             var pattern = line?.Pattern ?? ParseEnum(defaults.Pattern, LinePattern.Solid);
             var startCap = line?.StartCap ?? ParseLineEndpointStyle(defaults.StartCap);
@@ -4946,15 +5166,20 @@ public partial class MainWindow : Window
         if (_suppressShapeToolbar || sender is not ToggleButton { Tag: string tag }) return;
         if (!Enum.TryParse<ShapeKind>(tag, out var kind)) return;
 
-        var target = SelectedShape;
-        if (target != null)
+        var targets = SelectedShapes;
+        if (targets.Count > 0)
         {
-            if (target.Kind != kind)
+            bool changed = targets.Any(shape => shape.Kind != kind
+                || (kind == ShapeKind.Polygon && shape.PolygonPoints.Count < 3));
+            if (changed)
             {
                 PushUndo();
-                target.Kind = kind;
-                if (kind == ShapeKind.Polygon && target.PolygonPoints.Count < 3)
-                    target.SetPolygonPoints(DefaultPolygonPoints());
+                foreach (var shape in targets)
+                {
+                    shape.Kind = kind;
+                    if (kind == ShapeKind.Polygon && shape.PolygonPoints.Count < 3)
+                        shape.SetPolygonPoints(DefaultPolygonPoints());
+                }
                 RefreshInspector();
             }
         }
@@ -4972,7 +5197,7 @@ public partial class MainWindow : Window
         _suppressShapeToolbar = true;
         try
         {
-            var src = SelectedShape ?? ShapeDefaultsPreview();
+            var src = SelectedShape ?? SelectedShapes.FirstOrDefault() ?? ShapeDefaultsPreview();
             AttrShapeRectBtn.IsChecked = src.Kind == ShapeKind.Rectangle;
             AttrShapeEllipseBtn.IsChecked = src.Kind == ShapeKind.Ellipse;
             AttrShapeTriangleBtn.IsChecked = src.Kind == ShapeKind.Triangle;
@@ -5007,14 +5232,14 @@ public partial class MainWindow : Window
 
     private void AttrShapeFill1_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedShape;
-        var src = target ?? ShapeDefaultsPreview();
+        var targets = SelectedShapes;
+        var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
         var dlg = new ColorPickerDialog(src.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.FillColor1 = dlg.SelectedColor;
+            foreach (var shape in targets) shape.FillColor1 = dlg.SelectedColor;
             RefreshInspector();
         }
         else
@@ -5026,14 +5251,14 @@ public partial class MainWindow : Window
 
     private void AttrShapeFill2_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedShape;
-        var src = target ?? ShapeDefaultsPreview();
+        var targets = SelectedShapes;
+        var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
         var dlg = new ColorPickerDialog(src.FillColor2, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.FillColor2 = dlg.SelectedColor;
+            foreach (var shape in targets) shape.FillColor2 = dlg.SelectedColor;
             RefreshInspector();
         }
         else
@@ -5047,12 +5272,12 @@ public partial class MainWindow : Window
     {
         if (_suppressShapeToolbar) return;
         bool gradient = AttrShapeFillModeCombo.SelectedIndex == 1;
-        var target = SelectedShape;
-        if (target != null)
+        var targets = SelectedShapes;
+        if (targets.Count > 0)
         {
-            if (target.IsGradient == gradient) return;
+            if (targets.All(shape => shape.IsGradient == gradient)) return;
             PushUndo();
-            target.IsGradient = gradient;
+            foreach (var shape in targets) shape.IsGradient = gradient;
             RefreshInspector();
         }
         else
@@ -5065,15 +5290,14 @@ public partial class MainWindow : Window
     private void AttrShapeCorner_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressShapeToolbar) return;
-        var target = SelectedShape;
-        if (target?.UseIndividualCornerRadii == true || (target == null && _settings.Shape.IndividualCorners)) return;
-        if (target != null)
+        var targets = SelectedShapes.Where(shape => !shape.UseIndividualCornerRadii).ToList();
+        if (targets.Count > 0)
         {
             ArmInspectorUndo();
-            target.CornerRadius = AttrShapeCorner.Value;
+            foreach (var shape in targets) shape.CornerRadius = AttrShapeCorner.Value;
             RefreshInspector();
         }
-        else
+        else if (SelectedShapes.Count == 0 && !_settings.Shape.IndividualCorners)
         {
             _settings.Shape.CornerRadius = AttrShapeCorner.Value;
         }
@@ -5083,13 +5307,16 @@ public partial class MainWindow : Window
     {
         if (_suppressShapeToolbar) return;
         bool enabled = AttrShapeIndividualCheck.IsChecked == true;
-        var target = SelectedShape;
-        if (target != null)
+        var targets = SelectedShapes;
+        if (targets.Count > 0)
         {
             ArmInspectorUndo();
-            if (enabled && !target.UseIndividualCornerRadii)
-                target.IndividualCornerRadii = new CornerRadius(target.CornerRadius);
-            target.UseIndividualCornerRadii = enabled;
+            foreach (var shape in targets)
+            {
+                if (enabled && !shape.UseIndividualCornerRadii)
+                    shape.IndividualCornerRadii = new CornerRadius(shape.CornerRadius);
+                shape.UseIndividualCornerRadii = enabled;
+            }
             RefreshInspector();
         }
         else
@@ -5110,15 +5337,15 @@ public partial class MainWindow : Window
     private void AttrShapeIndividual_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressShapeToolbar || sender is not ValueSlider slider || slider.Tag is not string corner) return;
-        var target = SelectedShape;
-        if (target != null)
+        var targets = SelectedShapes.Where(shape => shape.UseIndividualCornerRadii).ToList();
+        if (targets.Count > 0)
         {
-            if (!target.UseIndividualCornerRadii) return;
             ArmInspectorUndo();
-            target.IndividualCornerRadii = SetCornerValue(target.IndividualCornerRadii, corner, slider.Value);
+            foreach (var shape in targets)
+                shape.IndividualCornerRadii = SetCornerValue(shape.IndividualCornerRadii, corner, slider.Value);
             RefreshInspector();
         }
-        else
+        else if (SelectedShapes.Count == 0)
         {
             if (!_settings.Shape.IndividualCorners) return;
             var radii = new CornerRadius(_settings.Shape.CornerTopLeft, _settings.Shape.CornerTopRight,
@@ -5136,16 +5363,20 @@ public partial class MainWindow : Window
     {
         if (_suppressShapeToolbar) return;
         bool on = AttrShapeBorderCheck.IsChecked == true;
-        var target = SelectedShape;
-        if (target != null)
+        var selected = SelectedShapes;
+        var targets = selected
+            .Where(shape => on ? shape.StrokeThickness <= 0.01 : shape.StrokeThickness > 0.01)
+            .ToList();
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.StrokeThickness = on
-                ? (target.StrokeThickness > 0.01 ? target.StrokeThickness : 2)
-                : 0;
+            foreach (var shape in targets)
+                shape.StrokeThickness = on
+                    ? (shape.StrokeThickness > 0.01 ? shape.StrokeThickness : 2)
+                    : 0;
             RefreshInspector();
         }
-        else
+        else if (selected.Count == 0)
         {
             _settings.Shape.StrokeThickness = on
                 ? (_settings.Shape.StrokeThickness > 0.01 ? _settings.Shape.StrokeThickness : 2)
@@ -5156,14 +5387,14 @@ public partial class MainWindow : Window
 
     private void AttrShapeBorderColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedShape;
-        var src = target ?? ShapeDefaultsPreview();
+        var targets = SelectedShapes;
+        var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
         var dlg = new ColorPickerDialog(src.StrokeColor, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.StrokeColor = dlg.SelectedColor;
+            foreach (var shape in targets) shape.StrokeColor = dlg.SelectedColor;
             RefreshInspector();
         }
         else
@@ -5176,11 +5407,11 @@ public partial class MainWindow : Window
     private void AttrShapeBorderThickness_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressShapeToolbar) return;
-        var target = SelectedShape;
-        if (target != null)
+        var targets = SelectedShapes;
+        if (targets.Count > 0)
         {
             ArmInspectorUndo();
-            target.StrokeThickness = AttrShapeBorderThickness.Value;
+            foreach (var shape in targets) shape.StrokeThickness = AttrShapeBorderThickness.Value;
             RefreshInspector();
         }
         else
@@ -5194,40 +5425,49 @@ public partial class MainWindow : Window
     {
         if (_suppressShapeToolbar) return;
         bool on = AttrShapeShadowCheck.IsChecked == true;
-        var target = SelectedShape;
-        if (target != null)
+        var selected = SelectedShapes;
+        var targets = selected
+            .Where(shape => (shape.ShadowStyle != ShadowStyle.None) != on)
+            .ToList();
+        if (targets.Count > 0)
         {
             PushUndo();
-            if (on) target.ApplyShadowPreset(ShadowStyle.Medium);
-            else target.ShadowStyle = ShadowStyle.None;
+            foreach (var shape in targets)
+            {
+                if (on) shape.ApplyShadowPreset(ShadowStyle.Medium);
+                else shape.ShadowStyle = ShadowStyle.None;
+            }
             RefreshInspector();
         }
-        else if (on)
+        else if (selected.Count == 0)
         {
-            _settings.Shape.ShadowStyle = ShadowStyle.Medium.ToString();
-            _settings.Shape.ShadowX = 4;
-            _settings.Shape.ShadowY = 8;
-            _settings.Shape.ShadowBlur = 14;
-            _settings.Shape.ShadowOpacity = 35;
-            _settings.Shape.ShadowColor = "#000000";
-        }
-        else
-        {
-            _settings.Shape.ShadowStyle = ShadowStyle.None.ToString();
+            if (on)
+            {
+                _settings.Shape.ShadowStyle = ShadowStyle.Medium.ToString();
+                _settings.Shape.ShadowX = 4;
+                _settings.Shape.ShadowY = 8;
+                _settings.Shape.ShadowBlur = 14;
+                _settings.Shape.ShadowOpacity = 35;
+                _settings.Shape.ShadowColor = "#000000";
+            }
+            else
+            {
+                _settings.Shape.ShadowStyle = ShadowStyle.None.ToString();
+            }
         }
         RefreshShapeToolbar();
     }
 
     private void AttrShapeShadowColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedShape;
-        var src = target ?? ShapeDefaultsPreview();
+        var targets = SelectedShapes;
+        var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
         var dlg = new ColorPickerDialog(src.ShadowColor, CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.ShadowColor = dlg.SelectedColor;
+            foreach (var shape in targets) shape.ShadowColor = dlg.SelectedColor;
             RefreshInspector();
         }
         else
@@ -5247,7 +5487,7 @@ public partial class MainWindow : Window
         _suppressTextToolbar = true;
         try
         {
-            var src = SelectedText ?? _textDefaults;
+            var src = SelectedText ?? SelectedTexts.FirstOrDefault() ?? _textDefaults;
             AttrTextColorBtn.Background = new SolidColorBrush(src.TextColor1);
             AttrTextFontCombo.SelectedItem = src.FontFamilyName;
             AttrTextSize.SetValue(src.FontSize);
@@ -5371,14 +5611,15 @@ public partial class MainWindow : Window
 
     private void AttrTextColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedText;
+        var targets = SelectedTexts;
+        var target = SelectedText ?? targets.FirstOrDefault();
         var dlg = new ColorPickerDialog(target?.TextColor1 ?? _textDefaults.TextColor1,
             CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.TextColor1 = dlg.SelectedColor;
+            foreach (var text in targets) text.TextColor1 = dlg.SelectedColor;
             UpdateTextEditorStyle();
             RefreshInspector();
         }
@@ -5392,15 +5633,15 @@ public partial class MainWindow : Window
     private void AttrTextFont_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressTextToolbar || AttrTextFontCombo.SelectedItem is not string name) return;
-        var target = SelectedText;
-        if (target == null)
+        var targets = SelectedTexts;
+        if (targets.Count == 0)
         {
             _textDefaults.FontFamilyName = name;
             return;
         }
-        if (target.FontFamilyName == name) return;
+        if (targets.All(text => text.FontFamilyName == name)) return;
         PushUndo();
-        target.FontFamilyName = name;
+        foreach (var text in targets) text.FontFamilyName = name;
         UpdateTextEditorStyle();
         RefreshInspector();
         RefreshTextToolbar();
@@ -5409,14 +5650,14 @@ public partial class MainWindow : Window
     private void AttrTextSize_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressTextToolbar) return;
-        var target = SelectedText;
-        if (target == null)
+        var targets = SelectedTexts;
+        if (targets.Count == 0)
         {
             _textDefaults.FontSize = AttrTextSize.Value;
             return;
         }
         ArmInspectorUndo();
-        target.FontSize = AttrTextSize.Value;
+        foreach (var text in targets) text.FontSize = AttrTextSize.Value;
         UpdateTextEditorStyle();
         RefreshInspector();
     }
@@ -5428,16 +5669,28 @@ public partial class MainWindow : Window
         bool italic = AttrTextItalicBtn.IsChecked == true;
         bool underline = AttrTextUnderlineBtn.IsChecked == true;
         bool strike = AttrTextStrikeBtn.IsChecked == true;
-        var target = SelectedText;
-        if (target != null)
+        var targets = SelectedTexts;
+        if (targets.Count > 0)
         {
-            PushUndo();
-            target.IsBold = bold;
-            target.IsItalic = italic;
-            target.IsUnderline = underline;
-            target.IsStrikethrough = strike;
-            UpdateTextEditorStyle();
-            RefreshInspector();
+            var reference = SelectedText ?? targets[0];
+            bool boldChanged = bold != reference.IsBold;
+            bool italicChanged = italic != reference.IsItalic;
+            bool underlineChanged = underline != reference.IsUnderline;
+            bool strikeChanged = strike != reference.IsStrikethrough;
+
+            if (boldChanged || italicChanged || underlineChanged || strikeChanged)
+            {
+                PushUndo();
+                foreach (var text in targets)
+                {
+                    if (boldChanged) text.IsBold = bold;
+                    if (italicChanged) text.IsItalic = italic;
+                    if (underlineChanged) text.IsUnderline = underline;
+                    if (strikeChanged) text.IsStrikethrough = strike;
+                }
+                UpdateTextEditorStyle();
+                RefreshInspector();
+            }
         }
         else
         {
@@ -5452,18 +5705,18 @@ public partial class MainWindow : Window
     private void AttrTextAlign_Click(object sender, RoutedEventArgs e)
     {
         if (_suppressTextToolbar) return;
-        var target = SelectedText;
-        var current = target?.Alignment ?? _textDefaults.Alignment;
+        var targets = SelectedTexts;
+        var current = (SelectedText ?? targets.FirstOrDefault())?.Alignment ?? _textDefaults.Alignment;
         var next = current switch
         {
             TextAlign.Left => TextAlign.Center,
             TextAlign.Center => TextAlign.Right,
             _ => TextAlign.Left,
         };
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.Alignment = next;
+            foreach (var text in targets) text.Alignment = next;
             UpdateTextEditorStyle();
             RefreshInspector();
         }
@@ -5477,14 +5730,14 @@ public partial class MainWindow : Window
     private void AttrTextSpacing_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressTextToolbar) return;
-        var target = SelectedText;
-        if (target == null)
+        var targets = SelectedTexts;
+        if (targets.Count == 0)
         {
             _textDefaults.LetterSpacing = AttrTextSpacing.Value;
             return;
         }
         ArmInspectorUndo();
-        target.LetterSpacing = AttrTextSpacing.Value;
+        foreach (var text in targets) text.LetterSpacing = AttrTextSpacing.Value;
         UpdateTextEditorStyle();
         RefreshInspector();
     }
@@ -5493,13 +5746,15 @@ public partial class MainWindow : Window
     {
         if (_suppressTextToolbar) return;
         bool on = AttrTextBorderCheck.IsChecked == true;
-        var target = SelectedText;
-        if (target != null)
+        var selected = SelectedTexts;
+        var targets = selected.Where(text => text.HasBorder != on).ToList();
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.HasBorder = on;
+            foreach (var text in targets) text.HasBorder = on;
+            RefreshInspector();
         }
-        else
+        else if (selected.Count == 0)
         {
             _textDefaults.HasBorder = on;
         }
@@ -5508,14 +5763,15 @@ public partial class MainWindow : Window
 
     private void AttrTextBorderColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedText;
+        var targets = SelectedTexts;
+        var target = SelectedText ?? targets.FirstOrDefault();
         var dlg = new ColorPickerDialog(target?.BorderColor ?? _textDefaults.BorderColor,
             CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.BorderColor = dlg.SelectedColor;
+            foreach (var text in targets) text.BorderColor = dlg.SelectedColor;
         }
         else
         {
@@ -5527,39 +5783,53 @@ public partial class MainWindow : Window
     private void AttrTextBorderThickness_ValueChanged(object? sender, EventArgs e)
     {
         if (_suppressTextToolbar) return;
-        var target = SelectedText;
-        if (target == null)
+        var targets = SelectedTexts;
+        if (targets.Count == 0)
         {
             _textDefaults.BorderThickness = AttrTextBorderThickness.Value;
             return;
         }
         ArmInspectorUndo();
-        target.BorderThickness = AttrTextBorderThickness.Value;
+        foreach (var text in targets) text.BorderThickness = AttrTextBorderThickness.Value;
     }
 
     private void AttrTextShadow_Toggled(object sender, RoutedEventArgs e)
     {
         if (_suppressTextToolbar) return;
         bool on = AttrTextShadowCheck.IsChecked == true;
-        var target = SelectedText;
-        if (target != null) PushUndo();
-        var styleTarget = target ?? _textDefaults;
-        if (on) styleTarget.ApplyShadowPreset(ShadowStyle.Medium);
-        else styleTarget.ShadowStyle = ShadowStyle.None;
+        var selected = SelectedTexts;
+        var targets = selected
+            .Where(text => (text.ShadowStyle != ShadowStyle.None) != on)
+            .ToList();
+        if (targets.Count > 0)
+        {
+            PushUndo();
+            foreach (var text in targets)
+            {
+                if (on) text.ApplyShadowPreset(ShadowStyle.Medium);
+                else text.ShadowStyle = ShadowStyle.None;
+            }
+        }
+        else if (selected.Count == 0)
+        {
+            if (on) _textDefaults.ApplyShadowPreset(ShadowStyle.Medium);
+            else _textDefaults.ShadowStyle = ShadowStyle.None;
+        }
         RefreshTextToolbar();
         RefreshInspector();
     }
 
     private void AttrTextShadowColor_Click(object sender, RoutedEventArgs e)
     {
-        var target = SelectedText;
+        var targets = SelectedTexts;
+        var target = SelectedText ?? targets.FirstOrDefault();
         var dlg = new ColorPickerDialog(target?.ShadowColor ?? _textDefaults.ShadowColor,
             CanvasColorsWithPrimary()) { Owner = this };
         if (dlg.ShowDialog() != true) return;
-        if (target != null)
+        if (targets.Count > 0)
         {
             PushUndo();
-            target.ShadowColor = dlg.SelectedColor;
+            foreach (var text in targets) text.ShadowColor = dlg.SelectedColor;
         }
         else
         {
@@ -5785,14 +6055,14 @@ public partial class MainWindow : Window
             if (sidebar.Visibility == Visibility.Visible &&
                 sidebar.ActualWidth >= ElementsSidebarWidth - 0.5) return;
 
-            double from = 0;
+            double fromWidth = 0;
             if (sidebar.Visibility == Visibility.Visible)
             {
                 // Reversing a running close animation: continue from the
                 // current width instead of snapping back to zero.
-                from = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
+                fromWidth = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
                 sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
-                sidebar.Width = from;
+                sidebar.Width = fromWidth;
             }
             else
             {
@@ -5800,16 +6070,33 @@ public partial class MainWindow : Window
                 sidebar.Width = 0;
             }
 
-            var fade = new DoubleAnimation(0, 1, ElementsSidebarDuration)
+            _elementsSidebarAnimating = true;
+            double fromOpacity = ElementsSidebarContent.Opacity;
+            double fromSlide = ElementsSidebarSlide.X;
+
+            var fade = new DoubleAnimation(fromOpacity, 1, new Duration(TimeSpan.FromMilliseconds(200)))
             {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
                 FillBehavior = FillBehavior.HoldEnd,
             };
             ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fade);
 
-            var grow = new DoubleAnimation(from, ElementsSidebarWidth, ElementsSidebarDuration)
+            var slide = new DoubleAnimation(fromSlide, 0, ElementsSidebarOpenDuration)
             {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut },
                 FillBehavior = FillBehavior.HoldEnd,
+            };
+            ElementsSidebarSlide.BeginAnimation(TranslateTransform.XProperty, slide);
+
+            var grow = new DoubleAnimation(fromWidth, ElementsSidebarWidth, ElementsSidebarOpenDuration)
+            {
+                EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            grow.Completed += (_, _) =>
+            {
+                if (version != _elementsSidebarVersion) return; // reversed meanwhile
+                FinishElementsSidebarAnimation();
             };
             sidebar.BeginAnimation(FrameworkElement.WidthProperty, grow);
             return;
@@ -5817,16 +6104,29 @@ public partial class MainWindow : Window
 
         if (sidebar.Visibility == Visibility.Collapsed) return;
 
+        _elementsSidebarAnimating = true;
         double shrinkFrom = sidebar.ActualWidth > 0 ? sidebar.ActualWidth : ElementsSidebarWidth;
         sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+        sidebar.Width = shrinkFrom;
 
-        var fadeOut = new DoubleAnimation(1, 0, ElementsSidebarDuration)
+        double currentOpacity = ElementsSidebarContent.Opacity;
+        double currentSlide = ElementsSidebarSlide.X;
+
+        var fadeOut = new DoubleAnimation(currentOpacity, 0, new Duration(TimeSpan.FromMilliseconds(190)))
         {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             FillBehavior = FillBehavior.HoldEnd,
         };
         ElementsSidebarContent.BeginAnimation(UIElement.OpacityProperty, fadeOut);
 
-        var shrink = new DoubleAnimation(shrinkFrom, 0, ElementsSidebarDuration)
+        var slideOut = new DoubleAnimation(currentSlide, -10, ElementsSidebarCloseDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+            FillBehavior = FillBehavior.HoldEnd,
+        };
+        ElementsSidebarSlide.BeginAnimation(TranslateTransform.XProperty, slideOut);
+
+        var shrink = new DoubleAnimation(shrinkFrom, 0, ElementsSidebarCloseDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             FillBehavior = FillBehavior.HoldEnd,
@@ -5837,8 +6137,15 @@ public partial class MainWindow : Window
             sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
             sidebar.Width = ElementsSidebarWidth;
             sidebar.Visibility = Visibility.Collapsed;
+            FinishElementsSidebarAnimation();
         };
         sidebar.BeginAnimation(FrameworkElement.WidthProperty, shrink);
+    }
+
+    private void FinishElementsSidebarAnimation()
+    {
+        _elementsSidebarAnimating = false;
+        QueueViewportSync();
     }
 
     /// <summary>
@@ -5942,14 +6249,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool canCorner = _doc.Selected is ImageElement
-            || _doc.Selected is ShapeElement { Kind: ShapeKind.Rectangle };
+        bool canCorner = _doc.SelectedElements.Any(el => el is ImageElement
+            || el is ShapeElement { Kind: ShapeKind.Rectangle });
         bool single = _doc.SelectionCount == 1;
         AttrRatioLockBtn.IsEnabled = single;
-        AttrOpacity.IsEnabled = single;
-        AttrSoft.IsEnabled = single;
-        AttrCorner.IsEnabled = single && canCorner;
-        AttrCorner.Opacity = single && canCorner ? 1.0 : 0.35;
+        AttrOpacity.IsEnabled = true;
+        AttrSoft.IsEnabled = true;
+        AttrCorner.IsEnabled = canCorner;
+        AttrCorner.Opacity = canCorner ? 1.0 : 0.35;
     }
 
     // =================================================================
@@ -6913,8 +7220,9 @@ public partial class MainWindow : Window
             AttrCornerBottomRight.SetValue(radii.BottomRight);
             AttrCornerBottomLeft.SetValue(radii.BottomLeft);
             AttrSoft.SetValue(s?.SoftEdge ?? 0);
-            bool canCorner = s is ImageElement || s is ShapeElement { Kind: ShapeKind.Rectangle };
-            AttrOpacity.IsEnabled = AttrSoft.IsEnabled = s != null;
+            bool canCorner = _doc.SelectedElements.Any(el => el is ImageElement
+                || el is ShapeElement { Kind: ShapeKind.Rectangle });
+            AttrOpacity.IsEnabled = AttrSoft.IsEnabled = _doc.SelectionCount > 0;
             AttrCornerIndividualCheck.IsEnabled = canCorner;
             AttrCorner.IsEnabled = canCorner && !individualCorners;
             AttrCorner.Opacity = canCorner ? 1.0 : 0.35;
@@ -7322,6 +7630,15 @@ public partial class MainWindow : Window
     // ---------- appearance (shape background / border) ----------
 
     private ShapeElement? SelectedShape => _doc.Selected as ShapeElement;
+
+    private IReadOnlyList<ShapeElement> SelectedShapes =>
+        _doc.SelectedElements.OfType<ShapeElement>().ToList();
+
+    private IReadOnlyList<TextElement> SelectedTexts =>
+        _doc.SelectedElements.OfType<TextElement>().ToList();
+
+    private IReadOnlyList<LineElement> SelectedLines =>
+        _doc.SelectedElements.OfType<LineElement>().ToList();
 
     private static string ToHex(System.Windows.Media.Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
@@ -8081,6 +8398,39 @@ public partial class MainWindow : Window
     /// <summary>Ctrl+F edits the selected element color, or the active tool's color default.</summary>
     private void PickContextColor()
     {
+        var selectedShapes = SelectedShapes;
+        var selectedTexts = SelectedTexts;
+        var selectedLines = SelectedLines;
+        int colorable = selectedShapes.Count + selectedTexts.Count + selectedLines.Count;
+        if (_doc.SelectionCount > 1 && colorable > 0)
+        {
+            var current = _doc.Selected switch
+            {
+                ShapeElement shape => shape.FillColor1,
+                TextElement text => text.TextColor1,
+                LineElement line => line.StrokeColor,
+                _ => selectedShapes.FirstOrDefault()?.FillColor1
+                     ?? selectedTexts.FirstOrDefault()?.TextColor1
+                     ?? selectedLines.FirstOrDefault()?.StrokeColor
+                     ?? _primaryColor,
+            };
+            var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+
+            PushUndo();
+            foreach (var shape in selectedShapes) shape.FillColor1 = dialog.SelectedColor;
+            foreach (var text in selectedTexts) text.TextColor1 = dialog.SelectedColor;
+            foreach (var line in selectedLines) line.StrokeColor = dialog.SelectedColor;
+            OnSelectionChanged();
+            RefreshInspector();
+            RefreshShapeToolbar();
+            RefreshTextToolbar();
+            RefreshLineToolbar();
+            UpdateTextEditorStyle();
+            StatusText.Text = $"Color set for {colorable} selected objects to {ToHex(dialog.SelectedColor)}.";
+            return;
+        }
+
         if (_doc.Selected is GroupElement group)
         {
             var shapes = group.Children.OfType<ShapeElement>().ToList();
@@ -8941,5 +9291,282 @@ public partial class MainWindow : Window
 
         _doc.Add(el);
         StatusText.Text = $"Placed photo '{item.DisplayName}' ({w:F0}×{h:F0} px) on the canvas.";
+    }
+
+    // =================================================================
+    // AI canvas assistant
+    // =================================================================
+
+    private void SideAi_Click(object sender, RoutedEventArgs e) =>
+        SetAiPanelVisible(!_aiPanelVisible);
+
+    private void AiHide_Click(object sender, RoutedEventArgs e) => SetAiPanelVisible(false);
+
+    private void SetAiPanelVisible(bool visible)
+    {
+        if (!visible)
+        {
+            _boundAiChat?.Cancel();
+            ResolveAiConfirm(false);
+        }
+
+        _aiPanelVisible = visible;
+        AiChatPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SideAiBtn.IsChecked = visible;
+        RefreshAiChat();
+
+        if (visible)
+            Dispatcher.BeginInvoke(new Action(() => AiPromptBox.Focus()));
+    }
+
+    /// <summary>Attach the chat of the active tab (each tab keeps its own history in memory).</summary>
+    private void BindAiChat()
+    {
+        if (_boundAiChat != null) _boundAiChat.Changed -= AiChat_Changed;
+        _boundAiChat = _activeTab >= 0 && _activeTab < _tabs.Count ? _tabs[_activeTab].AiChat : null;
+        if (_boundAiChat != null) _boundAiChat.Changed += AiChat_Changed;
+        if (AiMessagesList != null) AiMessagesList.ItemsSource = _boundAiChat?.Messages;
+        RefreshAiChat();
+    }
+
+    private void AiChat_Changed() => RefreshAiChat();
+
+    private void RefreshAiChat()
+    {
+        if (AiMessagesList == null) return;
+
+        bool hasTab = _boundAiChat != null;
+        bool thinking = _boundAiChat?.IsBusy == true;
+        bool busy = thinking || _aiPreparing;
+        bool hasMessages = _boundAiChat is { Messages.Count: > 0 };
+
+        AiEmptyHint.Text = hasTab
+            ? "Ask the assistant to change the canvas. Enter sends, Shift+Enter adds a line."
+            : "Open a project tab to use the assistant.";
+        AiEmptyHint.Visibility = hasMessages ? Visibility.Collapsed : Visibility.Visible;
+        AiClearBtn.IsEnabled = hasTab && hasMessages && !busy;
+        AiSendBtn.IsEnabled = hasTab && !busy;
+        AiSendBtn.Content = busy ? "Wait…" : "Send";
+        AiPromptBox.IsEnabled = hasTab && !busy;
+        AiStatusText.Text = thinking ? "AI is thinking…"
+            : _aiPreparing ? "Preparing canvas…"
+            : "";
+        if (AiBusyBar != null)
+            AiBusyBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        RefreshAiModelLabel();
+        UpdateAiPromptHint();
+
+        if (hasMessages)
+            Dispatcher.BeginInvoke(new Action(() => AiMessagesScroll.ScrollToEnd()));
+    }
+
+    private void RefreshAiModelLabel()
+    {
+        var ai = _settings.Ai ?? new AiProviderSettings();
+        string provider = ai.Provider == AiProviderKind.Gemini ? "Gemini" : "OpenAI-compatible";
+        AiModelLabel.Text = $"{provider} · {ai.Model}";
+    }
+
+    private void AiPromptBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateAiPromptHint();
+
+    private void UpdateAiPromptHint()
+    {
+        if (AiPromptHint == null || AiPromptBox == null) return;
+        AiPromptHint.Visibility = AiPromptBox.IsEnabled && AiPromptBox.Text.Length == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private async void AiSend_Click(object sender, RoutedEventArgs e) => await SendAiPromptAsync();
+
+    private void AiPromptBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            _ = SendAiPromptAsync();
+        }
+    }
+
+    private async Task SendAiPromptAsync()
+    {
+        if (_activeTab < 0 || _activeTab >= _tabs.Count) return;
+
+        var tab = _tabs[_activeTab];
+        var chat = tab.AiChat;
+        string prompt = AiPromptBox.Text.Trim();
+        if (prompt.Length == 0 || chat.IsBusy) return;
+
+        _aiPreparing = true;
+        RefreshAiChat();
+
+        try
+        {
+            await Dispatcher.Yield(DispatcherPriority.Render);
+            if (_activeTab < 0 || _activeTab >= _tabs.Count || !ReferenceEquals(_tabs[_activeTab], tab))
+                return;
+
+            CommitTextEdit();
+            var document = _doc;
+            string? pngBase64 = CaptureAiCanvasPng(document);
+
+            AiPromptBox.Clear();
+            _settings.Ai ??= new AiProviderSettings();
+            _settings.Ai.Normalize();
+
+            Task sendTask = chat.SendAsync(
+                document,
+                prompt,
+                _settings.Ai,
+                pngBase64,
+                () => CaptureAiCanvasPng(document),
+                request => ConfirmAiDeleteAsync(chat, request),
+                PushUndo,
+                signature => _activeTab >= 0
+                             && _activeTab < _tabs.Count
+                             && ReferenceEquals(_tabs[_activeTab].Document, document)
+                             && AiCanvasBrief.Signature(document) == signature,
+                report => AfterAiApply(tab, report));
+
+            _aiPreparing = false;
+            RefreshAiChat();
+            await sendTask;
+        }
+        catch (Exception ex)
+        {
+            chat.AddError("שגיאה לא צפויה: " + ex.Message);
+        }
+        finally
+        {
+            _aiPreparing = false;
+            RefreshAiChat();
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_activeTab >= 0 && _activeTab < _tabs.Count
+                    && ReferenceEquals(_tabs[_activeTab], tab) && !chat.IsBusy)
+                    AiPromptBox.Focus();
+            }));
+        }
+    }
+
+    /// <summary>One PNG of the artboard per round, downscaled to at most 1280px on its longest side.</summary>
+    private string? CaptureAiCanvasPng(DesignDocument? document = null)
+    {
+        var doc = document ?? _doc;
+        if (!ReferenceEquals(doc, _doc)) return null;
+
+        try
+        {
+            ElementHost.UpdateLayout();
+            var art = doc.ArtboardRect;
+            if (art.Width < 1 || art.Height < 1) return null;
+
+            // Render at the final size so a very large artboard never allocates
+            // a full-resolution bitmap just to downscale it afterwards. Cap the
+            // longest side so tall, narrow canvases stay small too.
+            double longest = Math.Max(art.Width, art.Height);
+            double scale = Math.Min(1.0, 1280.0 / longest);
+            BitmapSource bmp = SliceExportService.RenderRegion(
+                ElementHost, art, doc.CanvasTransparent ? null : doc.CanvasColor, scale, 96);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            using var stream = new MemoryStream();
+            encoder.Save(stream);
+            return Convert.ToBase64String(stream.ToArray());
+        }
+        catch (Exception ex)
+        {
+            _boundAiChat?.AddError("לא ניתן היה לצלם את הקנבס: " + ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Asks before destructive commands; false cancels only those commands.</summary>
+    private Task<bool> ConfirmAiDeleteAsync(AiChatService chat, AiDeleteRequest request)
+    {
+        ResolveAiConfirm(false);
+        if (!ReferenceEquals(_boundAiChat, chat)) return Task.FromResult(false);
+
+        _aiConfirm = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        string labels = string.Join(", ", request.Labels.Take(4));
+        if (request.Labels.Count > 4) labels += $" ועוד {request.Labels.Count - 4}";
+        if (labels.Length == 0) labels = "העצמים שנבחרו";
+        AiConfirmText.Text = $"המחיקה תסיר {request.Ids.Count} עצמים: {labels}. לאשר?";
+        AiConfirmBar.Visibility = Visibility.Visible;
+
+        return _aiConfirm.Task;
+    }
+
+    private void ResolveAiConfirm(bool approved)
+    {
+        var pending = _aiConfirm;
+        _aiConfirm = null;
+        AiConfirmBar.Visibility = Visibility.Collapsed;
+        pending?.TrySetResult(approved);
+    }
+
+    private void AiConfirmYes_Click(object sender, RoutedEventArgs e) => ResolveAiConfirm(true);
+
+    private void AiConfirmNo_Click(object sender, RoutedEventArgs e) => ResolveAiConfirm(false);
+
+    private void AiClear_Click(object sender, RoutedEventArgs e)
+    {
+        _boundAiChat?.Clear();
+        if (_boundAiChat != null) AiMessagesList.ItemsSource = _boundAiChat.Messages;
+    }
+
+    private void AfterAiApply(EditorTab tab, AiApplyReport report)
+    {
+        if (_activeTab < 0 || _activeTab >= _tabs.Count || !ReferenceEquals(_tabs[_activeTab], tab)) return;
+
+        if (report.CanvasChanged) UpdateArtboardFill();
+        OnSelectionChanged();
+        RefreshInspector();
+        RefreshPhotoPanel();
+        RefreshActiveTabMeta();
+
+        if (report.Applied.Count > 0)
+            StatusText.Text = $"AI applied {report.Applied.Count} change{(report.Applied.Count == 1 ? "" : "s")} to the canvas.";
+    }
+
+    private void AiResizeGrip_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        _aiResizing = true;
+        _aiResizeStartY = e.GetPosition(this).Y;
+        _aiResizeStartHeight = AiChatPanel.ActualHeight;
+        AiResizeGrip.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void AiResizeGrip_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_aiResizing) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndAiResize();
+            return;
+        }
+
+        double delta = _aiResizeStartY - e.GetPosition(this).Y;
+        double max = Math.Max(200, ActualHeight * 0.72);
+        AiChatPanel.Height = Math.Clamp(_aiResizeStartHeight + delta, 150, max);
+    }
+
+    private void AiResizeGrip_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_aiResizing) return;
+        EndAiResize();
+    }
+
+    private void AiResizeGrip_LostMouseCapture(object sender, MouseEventArgs e) => EndAiResize();
+
+    private void EndAiResize()
+    {
+        if (!_aiResizing) return;
+        _aiResizing = false;
+        if (AiResizeGrip.IsMouseCaptured) AiResizeGrip.ReleaseMouseCapture();
     }
 }

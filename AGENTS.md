@@ -71,10 +71,19 @@ live in `%AppData%\YorteImpact\settings.json`.
 - Numeric settings use `ValueSlider`. Colors use `AttrSwatch`.
 - `ValueSlider` has an `Inline` mode (label + live value + always-visible
   slider), used by the Photo tab. Use it instead of adding popup inputs.
+  Compact number fields scrub on press-drag and close the slider on release;
+  double-click selects the text, so do not reintroduce click-to-open.
 - `ValueSlider.TrackBrush` renders a colored track; Photo uses it only for
   Temperature and Tint. Add gradient resources in `MainWindow.Resources`.
 - Tool modes use compact icon groups (`SegBtn` toggle buttons), **not**
   ComboBox selects. Popup lists use `PresetItemBtn` rows.
+- The two copy buttons use `PlayCopyFeedback`: a one-second centered overlay
+  that dims the window and fades away. Keep it hit-test transparent. Copy as
+  image passes the frozen render as a preview; release it when the overlay
+  finishes.
+- The Elements sidebar animates its width with eased curves while the viewport
+  follows. Do not force `ScrollHost.UpdateLayout()` from `SizeChanged` during
+  that animation; it causes a nested-layout stutter.
 - Keep the top attribute bar compact and horizontally scrollable; cards and
   fields stay low-contrast and near-black.
 - Keep comments minimal and factual. No comments that restate code.
@@ -86,8 +95,13 @@ live in `%AppData%\YorteImpact\settings.json`.
   at `BackgroundZ = -10000` and must never be selectable, snapped or reordered.
 - Undo is a whole-document snapshot. Call `PushUndo()` **before** the first
   mutation of a gesture; never per mouse move.
+- Multi-selection style controls loop over `SelectedElements` of the matching
+  type and snapshot once; never mutate only `_doc.Selected` (the last click).
 - Coordinates are pasteboard DIPs. The artboard is `ArtboardRect`; zoom is a
   layout transform on the pasteboard.
+- Slice markers are hidden only by `Space` (or cleared by Esc). A plain Slice
+  click resets the active region and must not reveal hidden markers; only an
+  actual drag shows a new slice.
 - `.yimpact` is backward compatible: add DTO fields with defaults; do not
   renumber existing fields.
 - Images may hold a live `WriteableBitmap`. Do not freeze an `ImageBrush` whose
@@ -102,6 +116,26 @@ live in `%AppData%\YorteImpact\settings.json`.
 - `ProjectFile` stores the exact artboard rect (`ArtboardX/Y` plus size).
   `ApplyTo` must restore it, not just call `NewCanvas`; otherwise undo after
   `Ctrl+R` moves the canvas under the elements.
+- AI edits arrive as JSON commands and are validated on clones before the real
+  document is touched. Apply a whole batch with one `PushUndo()`, never touch
+  `PaintLayerElement`, and keep photo commands non-destructive.
+- AI coordinates are artboard-relative: `AiCanvasBrief` emits `X/Y` relative to
+  `(ArtboardX, ArtboardY)`, and `AiCommandApplier` adds that origin before
+  touching the document. Keep the brief, prompt and applier in the same space.
+- Two-pass refinement is one user action: both passes share a single
+  `PushUndo()`. The second pass rebuilds the brief/map/PNG from the result of
+  the first pass and applies only fixes from a fresh validation.
+- `add_shape` accepts `Behind=true` to place a new background panel under
+  existing content without reordering it by an unknown new id.
+- RTL text created inside a shape gets a `WrapWidth` from the container when
+  the model omits it; right alignment needs a full text column, not a tight box.
+- Chat bubbles show one natural summary per round. Do not append the
+  per-command `report.Applied` labels to the chat; those are for status counts.
+- Never invent a price or number that is absent from the current instruction.
+  Chat history is context only; do not reuse a price from an earlier turn.
+- `AiCanvasBrief` marks images with a meaningful alpha area as
+  `transparent=true`. Keep the prompt rule that a transparent cutout gets no
+  white card or artificial background behind it.
 
 ## Change recipes
 
@@ -185,6 +219,23 @@ Photo edits are non-destructive: `ImageElement.Source` stays untouched;
    render; do not add separate paths.
 8. README.
 
+### Add or change an AI command
+
+1. `Services/Ai/AiCommandApplier.cs`: add the op to `AllowedFor`, validate its
+   props in `ValidateCommand`, and apply it in `ApplyOne` (or
+   `ApplyToElement`). `X/Y` props are artboard-relative: add `ArtboardX/Y`
+   before clamping to the document. Reject the paint layer. Keep Hebrew/Arabic
+   text RTL and right-aligned unless centered.
+2. `Services/Ai/AiPromptBuilder.cs`: add the op and its props to the Hebrew
+   schema so the model can emit it. Keep the relative-coordinate and RTL rules
+   in sync with the applier.
+3. `Services/Ai/AiChatService.cs`: destructive batches go through
+   `confirmDelete`; everything else is applied after `Validate` succeeds.
+   Two-pass review reuses the same callbacks and one shared `PushUndo()`.
+4. `Services/Ai/AiCanvasBrief.cs`: expose any new element data the model needs
+   to target it; emit `X/Y` relative to `(ArtboardX, ArtboardY)`.
+5. README: describe the new capability in the AI section.
+
 ## MainWindow touchpoints
 
 Search for these names instead of scanning the file:
@@ -197,6 +248,9 @@ Search for these names instead of scanning the file:
   `OnElementPropertyChanged`, `_suppressInspector`
 - Photo tab: `InspectorTabBtn`, `PhotoTabBtn`, `SetRightPanelMode`,
   `RefreshPhotoPanel`, `PhotoAdjust_ValueChanged`, `PhotoPanel`, `_suppressPhoto`
+- AI chat: `SideAiBtn`, `AiChatPanel`, `BindAiChat`, `RefreshAiChat`,
+  `SendAiPromptAsync`, `CaptureAiCanvasPng`, `AfterAiApply`, `AiConfirmBar`,
+  `ResolveAiConfirm`
 - Undo: `PushUndo`, `ArmInspectorUndo`
 - Persistence: `YorteProjectService.Capture/ToDto/ApplyTo`, `Persist...`
 - Export/copy: `SaveDocument`, `SliceExportService`
@@ -230,6 +284,7 @@ Search for these names instead of scanning the file:
 | Shell | `MainWindow.xaml(.cs)`, `App.xaml(.cs)`, `NewCanvasDialog`, `SettingsDialog` |
 | Controls | `SelectionOverlay`, `ValueSlider`, `ColorPickerDialog`, `TextElementView` |
 | Raster services | `BrushEngine`, `BackgroundRemoverService`, `CanvasSampler`, `ContourService`, `ScreenColorSampler`, `PhotoAdjustmentService` |
+| AI assistant | `Services/Ai/AiClient`, `AiChatService`, `AiCommandApplier`, `AiCanvasBrief`, `AiPromptBuilder`, `AiKeyProtector`, `AiProviderSettings` |
 | IO/settings | `YorteProjectService` (`.yimpact`), `AppSettings`, `ClipboardHelper` |
 | Render/slicing | `SliceExportService`, `SliceCutService`, `ResizeService` |
 | Undo/window | `UndoService`, `DarkTitleBar` |
