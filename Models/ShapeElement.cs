@@ -24,6 +24,7 @@ public enum ShapeKind
     Ellipse,
     Triangle,
     Polygon,
+    CustomPath,
 }
 
 /// <summary>
@@ -43,6 +44,7 @@ public class ShapeElement : DesignElement
     private Color _strokeColor = Color.FromRgb(0x1E, 0x3A, 0x8A);
     private double _strokeThickness = 2;
     private ImageSource? _fillImage;
+    private string? _customPathData;
 
     private Brush _fillBrush = Brushes.CornflowerBlue;
     private Brush _borderBrush = Brushes.Navy;
@@ -95,6 +97,17 @@ public class ShapeElement : DesignElement
         _polygonPoints.Clear();
         _polygonPoints.AddRange(points);
         RebuildGeometry();
+    }
+
+    /// <summary>SVG path data mini-language string when <see cref="Kind"/> is CustomPath.</summary>
+    public string? CustomPathData
+    {
+        get => _customPathData;
+        set
+        {
+            if (Set(ref _customPathData, value))
+                RebuildGeometry();
+        }
     }
 
     public double CornerRadius
@@ -214,6 +227,45 @@ public class ShapeElement : DesignElement
                 }
                 pg.Freeze();
                 geometry = pg;
+                break;
+            }
+
+            case ShapeKind.CustomPath:
+            {
+                if (!string.IsNullOrWhiteSpace(_customPathData))
+                {
+                    try
+                    {
+                        var raw = Geometry.Parse(_customPathData);
+                        Rect bounds = raw.Bounds;
+                        if (bounds.Width > 0 && bounds.Height > 0)
+                        {
+                            var tg = new TransformGroup();
+                            tg.Children.Add(new TranslateTransform(-bounds.X, -bounds.Y));
+                            tg.Children.Add(new ScaleTransform(w / bounds.Width, h / bounds.Height));
+
+                            var pg = PathGeometry.CreateFromGeometry(raw);
+                            pg.FillRule = FillRule.Nonzero;
+                            pg.Transform = tg;
+
+                            var baked = PathGeometry.CreateFromGeometry(pg);
+                            baked.FillRule = FillRule.Nonzero;
+                            geometry = baked;
+                        }
+                        else
+                        {
+                            geometry = raw;
+                        }
+                    }
+                    catch
+                    {
+                        geometry = Geometry.Empty;
+                    }
+                }
+                else
+                {
+                    geometry = Geometry.Empty;
+                }
                 break;
             }
 
@@ -415,6 +467,7 @@ public class ShapeElement : DesignElement
             IsGradient = IsGradient, GradientType = GradientType, GradientAngle = GradientAngle,
             StrokeColor = StrokeColor, StrokeThickness = StrokeThickness,
             FillImage = FillImage,
+            CustomPathData = CustomPathData,
         };
         c.SetPolygonPoints(_polygonPoints);
         return c;

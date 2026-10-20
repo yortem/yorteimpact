@@ -1984,6 +1984,12 @@
                       Background="#000000"/>
             </StackPanel>
 
+            <!-- Elements tool settings -->
+            <StackPanel x:Name="AttrElementsPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="0,0,12,0" Visibility="Collapsed">
+              <TextBlock Text="Click any icon to insert onto canvas" Style="{StaticResource AttrCaption}" VerticalAlignment="Center"/>
+            </StackPanel>
+
             <!-- other tools: hint -->
             <TextBlock x:Name="AttrHint" VerticalAlignment="Center" Margin="4,0,10,0"
                        Foreground="#AEBCCC" FontSize="10" TextWrapping="NoWrap"/>
@@ -2109,6 +2115,13 @@
             <Path Data="M4,5 H20 M12,5 V20" Stroke="{StaticResource IconBrush}"
                   StrokeThickness="2" Fill="Transparent" Width="20" Height="20" Stretch="Uniform"/>
           </ToggleButton>
+          <!-- elements / library tool -->
+          <ToggleButton x:Name="SideElementsBtn" Style="{StaticResource SideTool}"
+                        Click="ToolElements_Click" ToolTip="Elements (I) - ready-made shapes, icons and library components">
+            <Path Data="M3,3 H10 V10 H3 Z M14,3 H21 V10 H14 Z M3,14 H10 V21 H3 Z M14,14 H21 V21 H14 Z"
+                  Stroke="{StaticResource IconBrush}" StrokeThickness="1.8" Fill="Transparent"
+                  Width="18" Height="18" Stretch="Uniform"/>
+          </ToggleButton>
 
           <Border Style="{StaticResource RailDivider}"/>
           <Button Style="{StaticResource SideBtn}" Click="PrimaryColorPick_Click"
@@ -2132,7 +2145,179 @@
       </DockPanel>
     </Border>
 
-    <!-- ================= RIGHT INSPECTOR ================= -->
+    <!-- ================= ELEMENTS SIDEBAR ================= -->
+    <Border x:Name="ElementsSidebar" DockPanel.Dock="Left" Width="280" Background="#0D131D"
+            BorderBrush="#1A2636" BorderThickness="0,0,1,0" Visibility="Collapsed">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#080A11" BorderBrush="#1A2636" BorderThickness="0,0,0,1" Padding="12,10">
+          <Grid>
+            <TextBlock Text="ELEMENTS" FontWeight="Bold" FontSize="11" Foreground="{StaticResource AccentBrush}"
+                       VerticalAlignment="Center"/>
+            <Button Style="{StaticResource TopBtn}" HorizontalAlignment="Right" Click="ElementsClose_Click"
+                    ToolTip="Close Elements (Esc)" Padding="6,2" Height="22">
+              <TextBlock Text="&#x2715;" FontSize="11" Foreground="{StaticResource MutedBrush}"/>
+            </Button>
+          </Grid>
+        </Border>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="1">
+          <!-- 1. Categories View -->
+          <Grid x:Name="ElementsCategoriesView" Margin="12">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="CATEGORIES" Style="{StaticResource SectionHeader}" Margin="0,4,0,12"/>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+              <UniformGrid Columns="2" VerticalAlignment="Top">
+                <!-- Iconify Card -->
+                <Button Style="{StaticResource TopBtn}" Click="CategoryIconify_Click" Margin="4" Padding="10"
+                        Height="110" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        Background="#111A27" BorderBrush="#1A2636" BorderThickness="1"
+                        ToolTip="Browse and search thousands of vector icons from Iconify">
+                  <Grid>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="*"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Path Grid.Row="0"
+                          Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,6V11H6V13H11V18H13V13H18V11H13V6H11Z"
+                          Fill="{StaticResource AccentBrush}" Width="26" Height="26" Stretch="Uniform"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Text="Icons" FontWeight="SemiBold" FontSize="12"
+                               Foreground="#E6EEF6" HorizontalAlignment="Center" Margin="0,6,0,2"/>
+                    <TextBlock Grid.Row="2" Text="Iconify Library" FontSize="9.5"
+                               Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center"/>
+                  </Grid>
+                </Button>
+              </UniformGrid>
+            </ScrollViewer>
+          </Grid>
+
+          <!-- 2. Iconify View -->
+          <Grid x:Name="ElementsIconifyView" Visibility="Collapsed" Margin="10,10,10,6">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Back navigation & title -->
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+              <Button Style="{StaticResource TopBtn}" HorizontalAlignment="Left" Click="IconifyBack_Click"
+                      ToolTip="Back to categories" Padding="6,3">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="&#x2190;" FontSize="11" Margin="0,0,4,0" Foreground="{StaticResource AccentBrush}"/>
+                  <TextBlock Text="Categories" FontSize="11" Foreground="{StaticResource MutedBrush}"/>
+                </StackPanel>
+              </Button>
+              <TextBlock Text="Iconify Icons" FontSize="11" FontWeight="SemiBold"
+                         Foreground="#E6EEF6" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
+
+            <!-- Search box -->
+            <Border Grid.Row="1" Background="#04070D" BorderBrush="#1A2636" BorderThickness="1"
+                    CornerRadius="4" Padding="6,4" Margin="0,0,0,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Path Grid.Column="0" Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                      Fill="{StaticResource MutedBrush}" Width="12" Height="12" Stretch="Uniform"
+                      VerticalAlignment="Center" Margin="2,0,6,0"/>
+                <TextBox Grid.Column="1" x:Name="IconifySearchBox" Background="Transparent" Foreground="White"
+                         BorderThickness="0" FontSize="11.5" VerticalContentAlignment="Center"
+                         TextChanged="IconifySearch_TextChanged"/>
+                <TextBlock Grid.Column="1" x:Name="IconifySearchPlaceholder" Text="Search icons (e.g. arrow, star)..."
+                           Foreground="#607184" FontSize="11" VerticalAlignment="Center" Margin="2,0,0,0"
+                           IsHitTestVisible="False"/>
+                <Button Grid.Column="2" x:Name="IconifySearchClearBtn" Style="{StaticResource TopBtn}"
+                        Padding="3,0" Height="18" Visibility="Collapsed" Click="IconifySearchClear_Click"
+                        ToolTip="Clear search">
+                  <TextBlock Text="&#x2715;" FontSize="9" Foreground="{StaticResource MutedBrush}"/>
+                </Button>
+              </Grid>
+            </Border>
+
+            <!-- Loading bar -->
+            <ProgressBar Grid.Row="2" x:Name="IconifyLoadingBar" Height="2" IsIndeterminate="True"
+                         Foreground="{StaticResource AccentBrush}" Background="Transparent" BorderThickness="0"
+                         Margin="0,0,0,6" Visibility="Collapsed"/>
+
+            <!-- Error panel with retry and debug details -->
+            <Border Grid.Row="3" x:Name="IconifyErrorPanel" Background="#1A1215" BorderBrush="#592028"
+                    BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8" Visibility="Collapsed">
+              <StackPanel>
+                <TextBlock Text="Could not load icons from library." FontWeight="SemiBold"
+                           FontSize="11" Foreground="#FF8585"/>
+                <TextBlock Text="Check your internet connection and try again."
+                           FontSize="10" Foreground="#D19A9A" Margin="0,2,0,8"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                  <Button Style="{StaticResource TopBtn}" Background="#2B181E" BorderBrush="#7A2D39"
+                          BorderThickness="1" Padding="10,3" Click="IconifyRetry_Click" ToolTip="Retry fetching icons">
+                    <TextBlock Text="Retry" FontSize="11" Foreground="#FFC2C2"/>
+                  </Button>
+                  <Button Style="{StaticResource TopBtn}" Margin="8,0,0,0" Padding="6,3"
+                          Click="IconifyToggleDebug_Click" ToolTip="Toggle technical debug details">
+                    <TextBlock Text="Debug info" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                  </Button>
+                </StackPanel>
+                <TextBox x:Name="IconifyDebugText" Background="#0A0507" Foreground="#E0A0A0"
+                         FontSize="9.5" FontFamily="Consolas" BorderThickness="0" IsReadOnly="True"
+                         TextWrapping="Wrap" MaxHeight="80" VerticalScrollBarVisibility="Auto"
+                         Padding="4" Visibility="Collapsed"/>
+              </StackPanel>
+            </Border>
+
+            <!-- Icons list view -->
+            <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="IconifyItemsList">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal"/>
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Style="{StaticResource TopBtn}" Width="60" Height="60" Margin="2" Padding="4"
+                            Click="IconifyTile_Click" Tag="{Binding}"
+                            ToolTip="{Binding Id}"
+                            Background="#111A27" BorderBrush="#1A2636" BorderThickness="1">
+                      <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid.RowDefinitions>
+                          <RowDefinition Height="32"/>
+                          <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Path Grid.Row="0" Data="{Binding Geometry}" Fill="#E6EEF6"
+                              Width="24" Height="24" Stretch="Uniform"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Text="{Binding DisplayName}" FontSize="9"
+                                   Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"
+                                   MaxWidth="52" TextAlignment="Center" Margin="0,2,0,0"/>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Grid>
+        </Grid>
+      </Grid>
+    </Border>
     <Border x:Name="InspectorBorder" DockPanel.Dock="Right" Width="260" Background="#0D131D" BorderBrush="#1A2636" BorderThickness="0">
       <Grid>
       <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0">

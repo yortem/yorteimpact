@@ -42,7 +42,11 @@ public static class ContourService
         if (s.Kind != ShapeKind.Rectangle)
         {
             var g = s.ShapeGeometry.Clone();
-            g.Transform = new TranslateTransform(s.X, s.Y);
+            var tg = new TransformGroup();
+            if (g.Transform != null && !g.Transform.Value.IsIdentity)
+                tg.Children.Add(g.Transform);
+            tg.Children.Add(new TranslateTransform(s.X, s.Y));
+            g.Transform = tg;
             g.Freeze();
             return g;
         }

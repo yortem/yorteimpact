@@ -2,7 +2,10 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -29,7 +32,7 @@ namespace YorteImpact;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private enum ActiveTool { Pick, Slice, Line, Rectangle, Text, Erase, Paintbrush }
+    private enum ActiveTool { Pick, Slice, Line, Rectangle, Text, Erase, Paintbrush, Elements }
     private enum DragMode { None, Move, Resize, Rotate, Slice, Draw, DrawLine, Paint, Marquee, TextPress }
     private enum LineToolMode { Line, Polyline, Freehand }
     private enum SliceToolMode { Rectangle, Bezier }
@@ -252,6 +255,8 @@ public partial class MainWindow : Window
         AttrDrawRatioLockBtn.IsChecked = _lockDrawRatio;
         UpdateDrawRatioLockIcon();
         if (TryParseColor(_settings.Shape.Fill1, out var savedFill)) _primaryColor = savedFill;
+        if (_settings.Shape.ShapeKind == nameof(ShapeKind.CustomPath))
+            _settings.Shape.ShapeKind = nameof(ShapeKind.Rectangle);
         if (_settings.Text is { } savedText) ApplyTextDefaults(savedText);
         else _textDefaults.TextColor1 = _primaryColor;
         _settings.Brush ??= new BrushDefaults();
@@ -1852,7 +1857,7 @@ public partial class MainWindow : Window
             if (_tool == ActiveTool.Paintbrush)
                 UpdateBrushCursor(pos);
 
-            if (_tool == ActiveTool.Pick)
+            if (_tool is ActiveTool.Pick or ActiveTool.Elements)
             {
                 Cursor = _doc.Selected != null
                     ? SelectionAdorner.HitTestHandle(pos) switch
@@ -1886,7 +1891,7 @@ public partial class MainWindow : Window
     {
         if (_drag != DragMode.Paint)
             BrushCursor.Visibility = Visibility.Collapsed;
-        if (_drag is DragMode.Draw or DragMode.DrawLine || _lineDraft.Count > 0)
+        if (_drag is DragMode.Draw or DragMode.DrawLine or DragMode.Resize || _lineDraft.Count > 0)
             HideDrawSizeTip();
     }
 
@@ -1964,6 +1969,7 @@ public partial class MainWindow : Window
         {
             FinishLineDraw(e.GetPosition(Pasteboard));
         }
+        HideDrawSizeTip();
         _drag = DragMode.None;
         _activeHandle = HandleKind.None;
         _moveUndoPending = false;
@@ -2295,6 +2301,7 @@ public partial class MainWindow : Window
             double dw = te.Width - oldW, dh = te.Height - oldH;
             if (_activeHandle is HandleKind.W or HandleKind.NW or HandleKind.SW) te.X -= dw;
             if (_activeHandle is HandleKind.N or HandleKind.NW or HandleKind.NE) te.Y -= dh;
+            ShowSizeTipText($"{te.Width:F0} \u00D7 {te.Height:F0} px");
             return;
         }
 
@@ -2309,6 +2316,7 @@ public partial class MainWindow : Window
         el.Height = newH;
         el.X = newCenter.X - newW / 2;
         el.Y = newCenter.Y - newH / 2;
+        ShowSizeTipText($"{el.Width:F0} \u00D7 {el.Height:F0} px");
     }
 
     private Point SnapResizePointer(Point pos, HandleKind handle)
@@ -2649,11 +2657,13 @@ public partial class MainWindow : Window
     private ShapeElement CreateShapeFromDefaults(Rect rect)
     {
         var d = _settings.Shape;
+        var shapeKind = ParseEnum(d.ShapeKind, ShapeKind.Rectangle);
+        if (shapeKind == ShapeKind.CustomPath) shapeKind = ShapeKind.Rectangle;
         var el = new ShapeElement
         {
             X = rect.X, Y = rect.Y,
             Width = Math.Max(1, rect.Width), Height = Math.Max(1, rect.Height),
-            Kind = ParseEnum(d.ShapeKind, ShapeKind.Rectangle),
+            Kind = shapeKind,
             CornerRadius = d.CornerRadius,
             UseIndividualCornerRadii = d.IndividualCorners,
             IndividualCornerRadii = new CornerRadius(d.CornerTopLeft, d.CornerTopRight,
@@ -2698,7 +2708,8 @@ public partial class MainWindow : Window
         d.GradientAngle = sh.GradientAngle;
         d.Stroke = ToHex(sh.StrokeColor);
         d.StrokeThickness = sh.StrokeThickness;
-        d.ShapeKind = sh.Kind.ToString();
+        if (sh.Kind != ShapeKind.CustomPath)
+            d.ShapeKind = sh.Kind.ToString();
         d.CornerRadius = sh.CornerRadius;
         d.IndividualCorners = sh.UseIndividualCornerRadii;
         d.CornerTopLeft = sh.IndividualCornerRadii.TopLeft;
@@ -3581,10 +3592,17 @@ public partial class MainWindow : Window
         else if (e.Key == Key.T && !ctrl) { SetTool(ActiveTool.Text); e.Handled = true; }
         else if (e.Key == Key.E && !ctrl) { SetTool(ActiveTool.Erase); e.Handled = true; }
         else if (e.Key == Key.B && !ctrl) { SetTool(ActiveTool.Paintbrush); e.Handled = true; }
+        else if (e.Key == Key.I && !ctrl) { ToolElements_Click(sender, e); e.Handled = true; }
         else if (e.Key == Key.OemOpenBrackets && _tool == ActiveTool.Paintbrush) { AdjustBrushSize(-1); e.Handled = true; }
         else if (e.Key == Key.OemCloseBrackets && _tool == ActiveTool.Paintbrush) { AdjustBrushSize(+1); e.Handled = true; }
         else if (e.Key == Key.Escape)
         {
+            if (_tool == ActiveTool.Elements)
+            {
+                SetTool(ActiveTool.Pick);
+                e.Handled = true;
+                return;
+            }
             if (_ctrlGesturePending)
             {
                 CancelCtrlGesture();
@@ -3611,6 +3629,7 @@ public partial class MainWindow : Window
             if (_drag == DragMode.Paint) EndBrushStroke();
             if (_drag == DragMode.Draw) { DrawShapeVisual.Visibility = Visibility.Collapsed; HideDrawSizeTip(); }
             if (_drag == DragMode.DrawLine) ResetLineDraft();
+            if (_drag == DragMode.Resize) HideDrawSizeTip();
             if (_drag != DragMode.None) { _drag = DragMode.None; _moveUndoPending = false; HideSnapGuides(); Pasteboard.ReleaseMouseCapture(); }
             else if (_tool != ActiveTool.Pick) SetTool(ActiveTool.Pick);
             else
@@ -5631,6 +5650,7 @@ public partial class MainWindow : Window
                 ActiveTool.Text => "Text tool: click the canvas and type. Enter = new line, Esc or click outside = done. RTL is automatic (button in the inspector).",
                 ActiveTool.Erase => "Background remover: click an image to erase that color's connected area, or press Auto to clear the border background.",
                 ActiveTool.Paintbrush => "Paintbrush: paint on the clicked image or on the canvas. Alt+click samples a color; [ / ] changes the size.",
+                ActiveTool.Elements => "Elements: browse categories and click an icon to insert it onto the canvas.",
                 _ => StatusText.Text,
             };
     }
@@ -5642,12 +5662,14 @@ public partial class MainWindow : Window
         SideRectBtn.IsChecked = _tool == ActiveTool.Rectangle;
         SideLineBtn.IsChecked = _tool == ActiveTool.Line;
         SideTextBtn.IsChecked = _tool == ActiveTool.Text;
+        SideElementsBtn.IsChecked = _tool == ActiveTool.Elements;
         SideEraseBtn.IsChecked = _tool == ActiveTool.Erase;
         SideBrushBtn.IsChecked = _tool == ActiveTool.Paintbrush;
         Cursor = _tool switch
         {
             ActiveTool.Pick => Cursors.Arrow,
             ActiveTool.Text => Cursors.IBeam,
+            ActiveTool.Elements => Cursors.Arrow,
             _ => Cursors.Cross,
         };
 
@@ -5660,8 +5682,10 @@ public partial class MainWindow : Window
         AttrTextPanel.Visibility = _tool == ActiveTool.Text ? Visibility.Visible : Visibility.Collapsed;
         AttrRectPanel.Visibility = _tool == ActiveTool.Rectangle ? Visibility.Visible : Visibility.Collapsed;
         AttrLinePanel.Visibility = _tool == ActiveTool.Line ? Visibility.Visible : Visibility.Collapsed;
+        AttrElementsPanel.Visibility = _tool == ActiveTool.Elements ? Visibility.Visible : Visibility.Collapsed;
+        ElementsSidebar.Visibility = _tool == ActiveTool.Elements ? Visibility.Visible : Visibility.Collapsed;
         bool hint = _tool is not (ActiveTool.Pick or ActiveTool.Slice or ActiveTool.Erase
-            or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Line or ActiveTool.Paintbrush);
+            or ActiveTool.Text or ActiveTool.Rectangle or ActiveTool.Line or ActiveTool.Paintbrush or ActiveTool.Elements);
         AttrHint.Visibility = hint ? Visibility.Visible : Visibility.Collapsed;
         if (_tool == ActiveTool.Text) RefreshTextToolbar();
         if (_tool == ActiveTool.Rectangle) RefreshShapeToolbar();
@@ -5674,6 +5698,7 @@ public partial class MainWindow : Window
             ActiveTool.Rectangle => "PATH",
             ActiveTool.Line => "LINE AND ARROW",
             ActiveTool.Text => "TEXT",
+            ActiveTool.Elements => "ELEMENTS",
             ActiveTool.Erase => "ERASE BACKGROUND",
             ActiveTool.Paintbrush => "PAINTBRUSH",
             _ => "PICK",
@@ -7998,5 +8023,188 @@ public partial class MainWindow : Window
             if (shadowTarget != null) shadowTarget.ShadowStyle = originalShadowStyle;
         }
         refresh();
+    }
+
+    // =========================================================================
+    // ELEMENTS / ICONIFY TOOL
+    // =========================================================================
+
+    private DispatcherTimer? _iconifySearchDebounce;
+    private CancellationTokenSource? _iconifyCts;
+
+    private void ToolElements_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tool == ActiveTool.Elements)
+            SetTool(ActiveTool.Pick);
+        else
+            SetTool(ActiveTool.Elements);
+    }
+
+    private void ElementsClose_Click(object sender, RoutedEventArgs e)
+    {
+        SetTool(ActiveTool.Pick);
+    }
+
+    private void CategoryIconify_Click(object sender, RoutedEventArgs e)
+    {
+        ElementsCategoriesView.Visibility = Visibility.Collapsed;
+        ElementsIconifyView.Visibility = Visibility.Visible;
+        if (IconifyItemsList.ItemsSource == null)
+        {
+            LoadIconifyAsync(IconifySearchBox.Text);
+        }
+    }
+
+    private void IconifyBack_Click(object sender, RoutedEventArgs e)
+    {
+        ElementsIconifyView.Visibility = Visibility.Collapsed;
+        ElementsCategoriesView.Visibility = Visibility.Visible;
+    }
+
+    private void IconifySearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        string query = IconifySearchBox.Text;
+        IconifySearchPlaceholder.Visibility = string.IsNullOrEmpty(query) ? Visibility.Visible : Visibility.Collapsed;
+        IconifySearchClearBtn.Visibility = string.IsNullOrEmpty(query) ? Visibility.Collapsed : Visibility.Visible;
+
+        if (_iconifySearchDebounce == null)
+        {
+            _iconifySearchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _iconifySearchDebounce.Tick += (_, _) =>
+            {
+                _iconifySearchDebounce.Stop();
+                LoadIconifyAsync(IconifySearchBox.Text);
+            };
+        }
+        _iconifySearchDebounce.Stop();
+        _iconifySearchDebounce.Start();
+    }
+
+    private void IconifySearchClear_Click(object sender, RoutedEventArgs e)
+    {
+        IconifySearchBox.Text = string.Empty;
+        IconifySearchBox.Focus();
+    }
+
+    private void IconifyRetry_Click(object sender, RoutedEventArgs e)
+    {
+        LoadIconifyAsync(IconifySearchBox.Text);
+    }
+
+    private void IconifyToggleDebug_Click(object sender, RoutedEventArgs e)
+    {
+        IconifyDebugText.Visibility = IconifyDebugText.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private async void LoadIconifyAsync(string query)
+    {
+        _iconifyCts?.Cancel();
+        _iconifyCts?.Dispose();
+        _iconifyCts = new CancellationTokenSource();
+        var ct = _iconifyCts.Token;
+
+        IconifyLoadingBar.Visibility = Visibility.Visible;
+        IconifyErrorPanel.Visibility = Visibility.Collapsed;
+        IconifyDebugText.Visibility = Visibility.Collapsed;
+        IconifyDebugText.Text = string.Empty;
+
+        try
+        {
+            var items = await IconifyService.SearchIconsAsync(query, ct);
+            if (ct.IsCancellationRequested) return;
+
+            IconifyItemsList.ItemsSource = items;
+            if (items.Count == 0)
+            {
+                StatusText.Text = $"No icons found for '{query}'.";
+            }
+            else
+            {
+                StatusText.Text = string.IsNullOrWhiteSpace(query)
+                    ? "Loaded popular icons. Click any icon to insert onto canvas."
+                    : $"Found {items.Count} icons for '{query}'.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // query was replaced
+        }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested) return;
+            IconifyErrorPanel.Visibility = Visibility.Visible;
+            IconifyDebugText.Text = $"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}";
+            StatusText.Text = "Failed to load icons from Iconify library.";
+        }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                IconifyLoadingBar.Visibility = Visibility.Collapsed;
+            }
+        }
+    }
+
+    private void IconifyTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement fe || fe.Tag is not IconItem item) return;
+        if (string.IsNullOrWhiteSpace(item.PathData)) return;
+
+        PushUndo();
+
+        double maxDim = 96;
+        double w = maxDim;
+        double h = maxDim;
+        try
+        {
+            var raw = Geometry.Parse(item.PathData);
+            Rect b = raw.Bounds;
+            if (b.Width > 0 && b.Height > 0)
+            {
+                if (b.Width >= b.Height)
+                {
+                    w = maxDim;
+                    h = Math.Max(16, Math.Round(maxDim * b.Height / b.Width));
+                }
+                else
+                {
+                    h = maxDim;
+                    w = Math.Max(16, Math.Round(maxDim * b.Width / b.Height));
+                }
+            }
+        }
+        catch { }
+
+        var art = _doc.ArtboardRect;
+        double x = art.X + (art.Width - w) / 2;
+        double y = art.Y + (art.Height - h) / 2;
+
+        var color = _primaryColor;
+        if (color.A == 0) color = Color.FromRgb(0x2E, 0x9B, 0xFF);
+
+        var shape = new ShapeElement
+        {
+            Kind = ShapeKind.CustomPath,
+            CustomPathData = item.PathData,
+            X = Math.Round(x),
+            Y = Math.Round(y),
+            Width = w,
+            Height = h,
+            FillColor1 = color,
+            FillColor2 = color,
+            IsGradient = false,
+            StrokeColor = Colors.Transparent,
+            StrokeThickness = 0,
+            Opacity = 100
+        };
+
+        _doc.Elements.Add(shape);
+        _doc.NormalizeZ();
+        _doc.Select(shape);
+        RefreshInspector();
+        SelectionAdorner.InvalidateVisual();
+        StatusText.Text = $"Inserted icon '{item.Id}' ({w:F0}x{h:F0}) onto canvas.";
     }
 }

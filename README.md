@@ -107,6 +107,7 @@ Tools only, with thin group dividers:
 | Line and Arrow | `L` | Draw straight lines, point-by-point polylines and smoothed freehand strokes |
 | Path drawing | `R` | Draw shapes; Polygon uses click-to-connect |
 | Text | `T` | Type text in place |
+| Elements | `I` | Insert ready-made shapes, icons and library components |
 
 Below the tools: undo, redo, duplicate and delete.
 
@@ -315,6 +316,22 @@ between sessions, so new text keeps the last look you used.
 Resizing a text object with the Pick handles scales its font. Text objects are
 saved as editable elements in `.yimpact`.
 
+### Elements
+
+Open the **Elements** tool (`I`) to browse ready-made shapes, icons and library
+components. A secondary sidebar opens beside the tool rail, pushing the canvas
+area so your work remains centered and visible.
+
+- **Categories** — 2-column tiles categorize available items, starting with
+  the **Iconify Icons** library.
+- **Search & Insert** — Quick search box with live results and popular icon
+  suggestions. Click any icon to place it onto the center of the canvas.
+- **Vector Styling** — Inserted elements are full vector shapes with custom
+  fills, gradients, strokes, shadows, opacity and free scaling.
+- **Offline Reliability** — SVG vector data is embedded directly in `.yimpact`
+  project files, ensuring projects open and export anywhere without requiring
+  an internet connection.
+
 ### Selection and transforms
 
 - Click to select; a 1px animated outline hugs the actual opaque pixels.
@@ -322,6 +339,8 @@ saved as editable elements in `.yimpact`.
   intersects. Hold Ctrl or Shift while marquee-dragging to add to the current
   selection.
 - Drag to move; corner and side handles resize (Shift keeps proportions).
+- A size tip next to the cursor shows the live `W × H` while you drag a resize
+  handle, so you can match exact dimensions without reading the Inspector.
 - While resizing, hold **Ctrl** to snap the dragged edge to the visible grid
   lines — useful for matching a column width without locking proportions.
 - The aspect-ratio lock in the Pick tool and in the Inspector's **Geometry**
@@ -509,7 +528,7 @@ the exact visual reference.
 
 | Shortcut | Action |
 |---|---|
-| `V` / `M` / `B` / `E` / `L` / `R` / `T` | Pick / Slice / Paintbrush / Background remover / Line and Arrow / Path drawing / Text |
+| `V` / `M` / `B` / `E` / `L` / `R` / `T` / `I` | Pick / Slice / Paintbrush / Background remover / Line and Arrow / Path drawing / Text / Elements |
 | `[` / `]` | Decrease / increase paintbrush size |
 | `Up` / `Down` | Change the clicked numeric field, stepper or slider value |
 | `Alt+click` | Sample a paintbrush color from the canvas or image |

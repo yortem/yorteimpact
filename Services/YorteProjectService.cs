@@ -85,6 +85,7 @@ public static class YorteProjectService
         public double StrokeThickness { get; set; }
         public string? ShapeKind { get; set; }
         public List<PolygonPointDto>? PolygonPoints { get; set; }
+        public string? CustomPathData { get; set; }
         public string? LinePattern { get; set; }
         public string? LineStartCap { get; set; }
         public string? LineEndCap { get; set; }
@@ -216,6 +217,8 @@ public static class YorteProjectService
                     dto.PolygonPoints = s.PolygonPoints
                         .Select(p => new PolygonPointDto { X = p.X, Y = p.Y })
                         .ToList();
+                if (s.Kind == ShapeKind.CustomPath)
+                    dto.CustomPathData = s.CustomPathData;
                 break;
             case LineElement line:
                 dto.Kind = "line";
@@ -306,6 +309,7 @@ public static class YorteProjectService
                     GradientType = ParseGradientType(dto.GradientType),
                     StrokeColor = FromHex(dto.Stroke, Colors.Navy),
                     StrokeThickness = dto.StrokeThickness,
+                    CustomPathData = dto.CustomPathData,
                 },
                 "line" => LoadLine(dto),
                 "image" => LoadImage(dto),
@@ -430,6 +434,7 @@ public static class YorteProjectService
                     GradientType = ParseGradientType(childDto.GradientType),
                     StrokeColor = FromHex(childDto.Stroke, Colors.Navy),
                     StrokeThickness = childDto.StrokeThickness,
+                    CustomPathData = childDto.CustomPathData,
                 },
                 "line" => LoadLine(childDto),
                 "image" => LoadImage(childDto),
