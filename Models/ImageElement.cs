@@ -32,12 +32,23 @@ public class ImageElement : DesignElement
     private ImageSource? _alphaSource;
     private bool? _hasTransparency;
 
+    /// <summary>Optional transparent glass overlay; replaces the image while enabled.</summary>
+    public GlassEffect Glass { get; } = new();
+
     public ImageElement()
     {
         PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(UseIndividualCornerRadii) or nameof(IndividualCornerRadii))
                 Raise(nameof(RenderCornerRadius));
+        };
+        Glass.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(GlassEffect.Enabled))
+                Raise(nameof(BaseImageBrush));
+            if (e.PropertyName is nameof(GlassEffect.Enabled) or nameof(GlassEffect.Style)
+                or nameof(GlassEffect.Blur) or nameof(GlassEffect.Refraction))
+                Raise(nameof(Glass));
         };
     }
 
@@ -165,8 +176,14 @@ public class ImageElement : DesignElement
     public Brush? ImageBrush
     {
         get => _imageBrush;
-        private set => Set(ref _imageBrush, value);
+        private set
+        {
+            if (Set(ref _imageBrush, value)) Raise(nameof(BaseImageBrush));
+        }
     }
+
+    /// <summary>The image is hidden while glass is on so the backdrop shows through.</summary>
+    public Brush? BaseImageBrush => Glass.IsEnabled ? null : ImageBrush;
 
     private void RebuildBrush()
     {
@@ -208,6 +225,7 @@ public class ImageElement : DesignElement
         image.CornerRadius = CornerRadius;
         image.FitMode = FitMode;
         image.Adjustments.CopyFrom(Adjustments);
+        image.Glass.CopyFrom(Glass);
         image.RefreshPhotoPreview();
     }
 
@@ -236,6 +254,7 @@ public class ImageElement : DesignElement
             FitMode = FitMode,
         };
         c.Adjustments.CopyFrom(Adjustments);
+        c.Glass.CopyFrom(Glass);
         c.RefreshPhotoPreview();
         return c;
     }

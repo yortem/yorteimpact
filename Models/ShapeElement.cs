@@ -50,6 +50,9 @@ public class ShapeElement : DesignElement
     private Brush _borderBrush = Brushes.Navy;
     private Geometry _shapeGeometry = Geometry.Empty;
 
+    /// <summary>Optional transparent glass overlay; replaces the fill while enabled.</summary>
+    public GlassEffect Glass { get; } = new();
+
     private readonly List<Point> _polygonPoints = new();
 
     private static readonly Point[] DefaultPolygon =
@@ -71,6 +74,17 @@ public class ShapeElement : DesignElement
                 RebuildBrushes();
                 RebuildGeometry();
             }
+        };
+        Glass.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(GlassEffect.Enabled))
+            {
+                Raise(nameof(BaseFillBrush));
+                Raise(nameof(BaseBorderBrush));
+            }
+            if (e.PropertyName is nameof(GlassEffect.Enabled) or nameof(GlassEffect.Style)
+                or nameof(GlassEffect.Blur) or nameof(GlassEffect.Refraction))
+                Raise(nameof(Glass));
         };
     }
 
@@ -181,6 +195,11 @@ public class ShapeElement : DesignElement
         get => _borderBrush;
         private set => Set(ref _borderBrush, value);
     }
+
+    /// <summary>The normal fill is hidden while glass is on so the backdrop shows through.</summary>
+    public Brush BaseFillBrush => Glass.IsEnabled ? Brushes.Transparent : FillBrush;
+
+    public Brush BaseBorderBrush => Glass.IsEnabled ? Brushes.Transparent : BorderBrush;
 
     /// <summary>Geometry bound by the template; rebuilt whenever its inputs change.</summary>
     public Geometry ShapeGeometry
@@ -341,6 +360,8 @@ public class ShapeElement : DesignElement
 
         BorderBrush = new SolidColorBrush(StrokeColor);
         if (BorderBrush.CanFreeze) BorderBrush.Freeze(); // perf: frozen brushes render faster
+        Raise(nameof(BaseFillBrush));
+        Raise(nameof(BaseBorderBrush));
     }
 
     private Brush BuildGradient()
@@ -439,6 +460,7 @@ public class ShapeElement : DesignElement
         shape.UseIndividualCornerRadii = UseIndividualCornerRadii;
         shape.IndividualCornerRadii = IndividualCornerRadii;
         shape.FillImage = FillImage;
+        shape.Glass.CopyFrom(Glass);
     }
 
     public override DesignElement Clone()
@@ -470,6 +492,7 @@ public class ShapeElement : DesignElement
             CustomPathData = CustomPathData,
         };
         c.SetPolygonPoints(_polygonPoints);
+        c.Glass.CopyFrom(Glass);
         return c;
     }
 }

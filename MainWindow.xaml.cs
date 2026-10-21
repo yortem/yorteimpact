@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -196,6 +197,9 @@ public partial class MainWindow : Window
     private bool _suppressInspector;
     private bool _suppressPhoto;
     private bool _suppressGrid;
+    private readonly DispatcherTimer _glassRefreshTimer =
+        new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(50) };
+    private bool _glassRefreshing;
     private RightPanelMode _rightPanelMode = RightPanelMode.Inspector;
     private ImageSource? _photoPresetSource;
     private readonly List<ShadowPresetItem> _shadowPresets = new()
@@ -383,7 +387,9 @@ public partial class MainWindow : Window
         InspectorPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         PhotoPanel.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         ShadowCard.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
+        EffectsCard.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
         TextCard.PreviewMouseLeftButtonDown += (_, _) => _inspectorArmed = true;
+        _glassRefreshTimer.Tick += GlassRefreshTimer_Tick;
 
         _allFonts.AddRange(Fonts.SystemFontFamilies
             .Select(f => f.Source).Distinct()
@@ -394,7 +400,11 @@ public partial class MainWindow : Window
         AttrEraseTolerance.SetValue(25); // sensible default magic-wand tolerance
         PreviewMouseDown += (_, _) => ValueSlider.CloseAllPopups();
         Deactivated += (_, _) => ValueSlider.CloseAllPopups();
-        Loaded += (_, _) => ZoomToFit(); // show 100% of the canvas once layout exists
+        Loaded += (_, _) =>
+        {
+            ZoomToFit(); // show 100% of the canvas once layout exists
+            ScheduleGlassRefresh();
+        };
         Closed += (_, _) =>
         {
             PersistShapeDefaults();
@@ -410,11 +420,41 @@ public partial class MainWindow : Window
     // Tabs (one canvas/project per tab)
     // =================================================================
 
-    private void HookDocument(DesignDocument doc) => doc.PropertyChanged += OnDocumentPropertyChanged;
+    private void HookDocument(DesignDocument doc)
+    {
+        doc.PropertyChanged += OnDocumentPropertyChanged;
+        doc.Elements.CollectionChanged += OnDocumentElementsChanged;
+        foreach (var element in doc.Elements)
+            element.PropertyChanged += OnAnyElementPropertyChanged;
+    }
+
+    private void OnDocumentElementsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+            foreach (DesignElement element in e.OldItems)
+                element.PropertyChanged -= OnAnyElementPropertyChanged;
+        if (e.NewItems != null)
+            foreach (DesignElement element in e.NewItems)
+                element.PropertyChanged += OnAnyElementPropertyChanged;
+        ScheduleGlassRefresh();
+    }
+
+    private void OnAnyElementPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ShapeElement.BaseFillBrush) or nameof(ShapeElement.BaseBorderBrush))
+            return;
+        ScheduleGlassRefresh();
+    }
 
     private void OnDocumentPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!ReferenceEquals(sender, _doc)) return;
+        if (e.PropertyName is nameof(DesignDocument.CanvasColor) or nameof(DesignDocument.CanvasTransparent)
+            or nameof(DesignDocument.ArtboardRect) or nameof(DesignDocument.ArtboardX)
+            or nameof(DesignDocument.ArtboardY) or nameof(DesignDocument.ArtboardWidth)
+            or nameof(DesignDocument.ArtboardHeight))
+            ScheduleGlassRefresh();
+
         if (e.PropertyName is nameof(DesignDocument.Selected) or nameof(DesignDocument.HasSelection)
             or nameof(DesignDocument.SelectedElements) or nameof(DesignDocument.SelectionCount))
             OnSelectionChanged();
@@ -497,6 +537,7 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_activeTab >= 0 && _tabs[_activeTab] == tab) RestoreViewState(tab);
+            ScheduleGlassRefresh();
         }));
     }
 
@@ -1537,6 +1578,7 @@ public partial class MainWindow : Window
 
         try
         {
+            RefreshGlassBackdrops();
             var bmp = SliceExportService.RenderElement(el, null);
             SliceExportService.SaveBitmap(bmp, dlg.FileName);
             StatusText.Text = $"Saved {el.GetType().Name.Replace("Element", "").ToLowerInvariant()} to {dlg.FileName}.";
@@ -2047,6 +2089,7 @@ public partial class MainWindow : Window
         HideSnapGuides();
         if (Pasteboard.IsMouseCaptured) Pasteboard.ReleaseMouseCapture();
         if (_doc.Selected != null) RefreshContour(); // exact ants back after the drag
+        ScheduleGlassRefresh();
     }
 
     // ----- drag primitives -----
@@ -3920,6 +3963,7 @@ public partial class MainWindow : Window
 
     private void CopySelectionOrSlice()
     {
+        RefreshGlassBackdrops();
         if (_doc.SelectionCount > 1)
         {
             StatusText.Text = "Copy works on one object at a time; select a single object or use the right-click save.";
@@ -4212,6 +4256,21 @@ public partial class MainWindow : Window
 
                 if (s is ImageElement im)
                 {
+                    if (im.Glass.IsEnabled)
+                    {
+                        RefreshGlassBackdrops();
+                        int z = im.ZIndex;
+                        var flat = SliceCutService.CutGlassImageFlat(im, slice);
+                        _doc.RemoveElement(im);
+                        flat.ZIndex = z;
+                        _doc.Elements.Add(flat);
+                        _doc.NormalizeZ();
+                        _doc.Select(flat);
+                        StatusText.Text = "Cut the slice selection out — glass image flattened to the visible pixels.";
+                        SelectionAdorner.InvalidateVisual();
+                        return;
+                    }
+
                     var r = SliceCutService.EraseImageRegion(im, slice);
                     if (r == PunchResult.Partial)
                     {
@@ -4222,7 +4281,8 @@ public partial class MainWindow : Window
                 }
                 else if (s is ShapeElement sh)
                 {
-                    // One flat object out: bake fill/border to pixels, cut the hole.
+                    // One flat object out: bake fill/border/glass to pixels, cut the hole.
+                    RefreshGlassBackdrops();
                     int z = sh.ZIndex;
                     var flat = SliceCutService.CutShapeFlat(sh, slice);
                     _doc.RemoveElement(sh);
@@ -4230,7 +4290,7 @@ public partial class MainWindow : Window
                     _doc.Elements.Add(flat);
                     _doc.NormalizeZ();
                     _doc.Select(flat);
-                    StatusText.Text = "Cut the slice selection out — shape flattened to a single flat image (fill/border baked in).";
+                    StatusText.Text = "Cut the slice selection out — shape flattened to the visible pixels.";
                     SelectionAdorner.InvalidateVisual();
                     return;
                 }
@@ -4424,6 +4484,7 @@ public partial class MainWindow : Window
         {
             CommitTextEdit();
             ElementHost.UpdateLayout();
+            RefreshGlassBackdrops();
 
             var artboard = _doc.ArtboardRect;
             if (artboard.Width < 1 || artboard.Height < 1)
@@ -4555,6 +4616,7 @@ public partial class MainWindow : Window
             if (IsImagePath(path))
             {
                 Pasteboard.UpdateLayout();
+                RefreshGlassBackdrops();
                 var artboard = new Rect(_doc.ArtboardX, _doc.ArtboardY, _doc.ArtboardWidth, _doc.ArtboardHeight);
                 SliceExportService.ExportCanvasRegion(ElementHost, artboard, ExportBackground, path, 96, 1.0);
                 StatusText.Text = "Canvas exported to " + path;
@@ -4942,22 +5004,6 @@ public partial class MainWindow : Window
                 element.IndividualCornerRadii = new CornerRadius(GetUniformCornerRadius(element));
             element.UseIndividualCornerRadii = enabled;
         }
-        RefreshInspector();
-        RefreshShapeToolbar();
-    }
-
-    private void AttrCornerIndividual_ValueChanged(object? sender, EventArgs e)
-    {
-        if (_suppressInspector || sender is not ValueSlider slider || slider.Tag is not string corner) return;
-        var targets = _doc.SelectedElements
-            .Where(element => element.UseIndividualCornerRadii
-                && (element is ShapeElement || element is ImageElement))
-            .ToList();
-        if (targets.Count == 0) return;
-
-        ArmInspectorUndo();
-        foreach (var element in targets)
-            element.IndividualCornerRadii = SetCornerValue(element.IndividualCornerRadii, corner, slider.Value);
         RefreshInspector();
         RefreshShapeToolbar();
     }
@@ -6790,6 +6836,12 @@ public partial class MainWindow : Window
             source.SoftEdge = 0;
             source.UseOpacityGradient = false;
 
+            // Clone keeps the glass settings but not the runtime sample.
+            if (target is ShapeElement targetShape && source is ShapeElement clonedShape)
+                clonedShape.Glass.BackdropBrush = targetShape.Glass.BackdropBrush;
+            else if (target is ImageElement targetImage && source is ImageElement clonedImage)
+                clonedImage.Glass.BackdropBrush = targetImage.Glass.BackdropBrush;
+
             double scale = Math.Min(1.0, Math.Min(4096.0 / Math.Max(1, target.Width),
                 4096.0 / Math.Max(1, target.Height)));
             var bitmap = SliceExportService.RenderElement(source, null, scale);
@@ -7112,6 +7164,7 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_doc.Selected, editedImage)) RefreshPhotoPanel();
         }
         UpdateBrushCursor(Mouse.GetPosition(Pasteboard));
+        ScheduleGlassRefresh();
     }
 
     private WriteableBitmap? EnsureCanvasPaintSurface()
@@ -7325,11 +7378,6 @@ public partial class MainWindow : Window
                 _ => 0,
             });
             AttrCornerIndividualCheck.IsChecked = individualCorners;
-            AttrCornerIndividualPanel.Visibility = individualCorners ? Visibility.Visible : Visibility.Collapsed;
-            AttrCornerTopLeft.SetValue(radii.TopLeft);
-            AttrCornerTopRight.SetValue(radii.TopRight);
-            AttrCornerBottomRight.SetValue(radii.BottomRight);
-            AttrCornerBottomLeft.SetValue(radii.BottomLeft);
             AttrSoft.SetValue(s?.SoftEdge ?? 0);
             bool canCorner = _doc.SelectedElements.Any(el => el is ImageElement
                 || el is ShapeElement { Kind: ShapeKind.Rectangle });
@@ -7343,6 +7391,7 @@ public partial class MainWindow : Window
             RefreshAppearance();
             RefreshImage();
             RefreshShadow();
+            RefreshGlass();
             RefreshText();
             RefreshTransparency();
             RefreshPhotoPanel();
@@ -7925,6 +7974,173 @@ public partial class MainWindow : Window
     private void UpdateShadowVisibility(bool on) =>
         ShadowOptions.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
 
+    // ---------- glass (shape/image effects) ----------
+
+    private bool GlassRefreshAllowed =>
+        _drag is DragMode.None or DragMode.Move or DragMode.Resize or DragMode.Rotate;
+
+    private void GlassRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        _glassRefreshTimer.Stop();
+        if (GlassRefreshAllowed) RefreshGlassBackdrops();
+    }
+
+    private void ScheduleGlassRefresh()
+    {
+        if (!IsLoaded || !GlassRefreshAllowed) return;
+        // Keep one timer running instead of restarting it on every value/move:
+        // restarting meant a continuous drag delayed the sample until mouse-up.
+        if (_glassRefreshTimer.IsEnabled) return;
+        _glassRefreshTimer.Start();
+    }
+
+    private void RefreshGlassBackdrops()
+    {
+        if (_glassRefreshing || !IsLoaded || _doc.Elements.Count == 0) return;
+        if (!_doc.Elements.Any(element =>
+                element is ShapeElement { Glass.IsEnabled: true } or ImageElement { Glass.IsEnabled: true }))
+            return;
+        _glassRefreshing = true;
+        try
+        {
+            ElementHost.UpdateLayout();
+            foreach (var element in _doc.Elements.OrderBy(e => e.ZIndex).ToList())
+            {
+                switch (element)
+                {
+                    case ShapeElement shape:
+                        GlassEffectService.Update(shape, shape.Glass, _doc, ElementHost);
+                        break;
+                    case ImageElement image:
+                        GlassEffectService.Update(image, image.Glass, _doc, ElementHost);
+                        break;
+                }
+            }
+        }
+        finally
+        {
+            _glassRefreshing = false;
+        }
+    }
+
+    private GlassEffect? GetSelectedGlass()
+    {
+        if (_doc.SelectionCount != 1) return null;
+        return _doc.Selected switch
+        {
+            ShapeElement shape => shape.Glass,
+            ImageElement image => image.Glass,
+            _ => null,
+        };
+    }
+
+    private void RefreshGlass()
+    {
+        bool wasSuppressed = _suppressInspector;
+        _suppressInspector = true;
+        try
+        {
+            var glass = GetSelectedGlass();
+            EffectsCard.Visibility = glass == null ? Visibility.Collapsed : Visibility.Visible;
+            if (glass == null) return;
+
+            GlassCheck.IsChecked = glass.Enabled;
+            GlassOptions.Visibility = glass.Enabled ? Visibility.Visible : Visibility.Collapsed;
+            SetGlassStyleButtons(glass.Style);
+            GlassBlur.SetValue(glass.Blur);
+            GlassRefraction.SetValue(glass.Refraction);
+            GlassRim.SetValue(glass.Rim);
+            GlassGloss.SetValue(glass.Gloss);
+            GlassNoise.SetValue(glass.Noise);
+            GlassRefractionRow.Visibility = glass.Style == GlassStyle.Liquid
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        finally
+        {
+            _suppressInspector = wasSuppressed;
+        }
+    }
+
+    private void SetGlassStyleButtons(GlassStyle style)
+    {
+        GlassFrostedBtn.IsChecked = style == GlassStyle.Frosted;
+        GlassLiquidBtn.IsChecked = style == GlassStyle.Liquid;
+        GlassGlossyBtn.IsChecked = style == GlassStyle.Glossy;
+    }
+
+    private void GlassCheck_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { } glass) return;
+        bool enabled = GlassCheck.IsChecked == true;
+        if (glass.Enabled == enabled) return;
+
+        ArmInspectorUndo();
+        glass.Enabled = enabled;
+        RefreshGlass();
+        ScheduleGlassRefresh();
+        StatusText.Text = enabled
+            ? "Glass enabled — sampling the elements below."
+            : "Glass disabled.";
+    }
+
+    private void GlassStyle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { } glass) return;
+        if (sender is not ToggleButton { Tag: string tag }
+            || !Enum.TryParse<GlassStyle>(tag, out var style)) return;
+        if (!glass.Enabled) return;
+        if (glass.Style == style)
+        {
+            SetGlassStyleButtons(style);
+            return;
+        }
+
+        PushUndo();
+        _inspectorArmed = false;
+        glass.ApplyPreset(style);
+        RefreshGlass();
+        ScheduleGlassRefresh();
+        StatusText.Text = $"Glass: {style}.";
+    }
+
+    private void GlassBlur_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { Enabled: true } glass) return;
+        ArmInspectorUndo();
+        glass.Blur = GlassBlur.Value;
+        ScheduleGlassRefresh();
+    }
+
+    private void GlassRefraction_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { Enabled: true } glass) return;
+        ArmInspectorUndo();
+        glass.Refraction = GlassRefraction.Value;
+        ScheduleGlassRefresh();
+    }
+
+    private void GlassRim_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { Enabled: true } glass) return;
+        ArmInspectorUndo();
+        glass.Rim = GlassRim.Value;
+    }
+
+    private void GlassGloss_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { Enabled: true } glass) return;
+        ArmInspectorUndo();
+        glass.Gloss = GlassGloss.Value;
+    }
+
+    private void GlassNoise_ValueChanged(object? sender, EventArgs e)
+    {
+        if (_suppressInspector || GetSelectedGlass() is not { Enabled: true } glass) return;
+        ArmInspectorUndo();
+        glass.Noise = GlassNoise.Value;
+    }
+
     /// <summary>Free-hand edit: switch the preset labels to Custom without re-applying a look.</summary>
     private void MarkShadowCustom(DesignElement el)
     {
@@ -8004,6 +8220,16 @@ public partial class MainWindow : Window
 
     private void Transparency_Click(object sender, RoutedEventArgs e) =>
         TransparencyContent.Visibility = TransparencyToggle.IsChecked == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void Shadow_Click(object sender, RoutedEventArgs e) =>
+        ShadowContent.Visibility = ShadowToggle.IsChecked == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void Rotation_Click(object sender, RoutedEventArgs e) =>
+        RotationContent.Visibility = RotationToggle.IsChecked == true
             ? Visibility.Visible
             : Visibility.Collapsed;
 
@@ -9697,6 +9923,7 @@ public partial class MainWindow : Window
         try
         {
             ElementHost.UpdateLayout();
+            RefreshGlassBackdrops();
             var art = doc.ArtboardRect;
             if (art.Width < 1 || art.Height < 1) return null;
 

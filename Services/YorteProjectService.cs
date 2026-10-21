@@ -86,6 +86,14 @@ public static class YorteProjectService
         public string? ShapeKind { get; set; }
         public List<PolygonPointDto>? PolygonPoints { get; set; }
         public string? CustomPathData { get; set; }
+        // glass (shape or image)
+        public bool GlassEnabled { get; set; }
+        public string? GlassStyle { get; set; }
+        public double GlassBlur { get; set; } = 18;
+        public double GlassRefraction { get; set; }
+        public double GlassRim { get; set; } = 45;
+        public double GlassGloss { get; set; } = 10;
+        public double GlassNoise { get; set; } = 2;
         public string? LinePattern { get; set; }
         public string? LineStartCap { get; set; }
         public string? LineEndCap { get; set; }
@@ -213,6 +221,13 @@ public static class YorteProjectService
                 dto.GradientType = s.GradientType.ToString();
                 dto.Stroke = ToHex(s.StrokeColor); dto.StrokeThickness = s.StrokeThickness;
                 dto.ShapeKind = s.Kind.ToString();
+                dto.GlassEnabled = s.Glass.Enabled;
+                dto.GlassStyle = s.Glass.Style.ToString();
+                dto.GlassBlur = s.Glass.Blur;
+                dto.GlassRefraction = s.Glass.Refraction;
+                dto.GlassRim = s.Glass.Rim;
+                dto.GlassGloss = s.Glass.Gloss;
+                dto.GlassNoise = s.Glass.Noise;
                 if (s.FillImage is BitmapSource fillBmp)
                     dto.FillImageBase64 = Convert.ToBase64String(EncodePng(fillBmp));
                 if (s.Kind == ShapeKind.Polygon)
@@ -240,6 +255,13 @@ public static class YorteProjectService
                 dto.Kind = "image";
                 dto.CornerRadius = im.CornerRadius;
                 dto.ImageFit = im.FitMode.ToString();
+                dto.GlassEnabled = im.Glass.Enabled;
+                dto.GlassStyle = im.Glass.Style.ToString();
+                dto.GlassBlur = im.Glass.Blur;
+                dto.GlassRefraction = im.Glass.Refraction;
+                dto.GlassRim = im.Glass.Rim;
+                dto.GlassGloss = im.Glass.Gloss;
+                dto.GlassNoise = im.Glass.Noise;
                 if (im.Source is BitmapSource bmp)
                     dto.ImageBase64 = Convert.ToBase64String(EncodePng(bmp));
                 if (!im.Adjustments.IsDefault)
@@ -379,11 +401,30 @@ public static class YorteProjectService
                 var fillBmp = DecodeBitmap(dto.FillImageBase64);
                 if (fillBmp != null) filled.FillImage = fillBmp;
             }
+            GlassEffect? glass = el switch
+            {
+                ShapeElement shape => shape.Glass,
+                ImageElement imageEl => imageEl.Glass,
+                _ => null,
+            };
+            if (glass != null) ApplyGlass(dto, glass);
             if (el is TextElement tx) tx.EnableAnchoring();
             doc.Elements.Add(el);
         }
         doc.NormalizeZ();
         doc.Select(null);
+    }
+
+    private static void ApplyGlass(ElementDto dto, GlassEffect glass)
+    {
+        glass.Enabled = dto.GlassEnabled;
+        if (Enum.TryParse<GlassStyle>(dto.GlassStyle, out var style))
+            glass.Style = style;
+        glass.Blur = dto.GlassBlur;
+        glass.Refraction = dto.GlassRefraction;
+        glass.Rim = dto.GlassRim;
+        glass.Gloss = dto.GlassGloss;
+        glass.Noise = dto.GlassNoise;
     }
 
     private static ImageElement? LoadImage(ElementDto dto)
@@ -491,6 +532,13 @@ public static class YorteProjectService
                 line.OpacityEnd = childDto.OpacityGradient && childDto.OpacityEnd <= 0 ? 100 : childDto.OpacityEnd;
                 line.OpacityStrength = childDto.OpacityGradient && childDto.OpacityStrength <= 0 ? 100 : childDto.OpacityStrength;
             }
+            GlassEffect? childGlass = child switch
+            {
+                ShapeElement childShape => childShape.Glass,
+                ImageElement childImage => childImage.Glass,
+                _ => null,
+            };
+            if (childGlass != null) ApplyGlass(childDto, childGlass);
             if (child != null) group.Children.Add(child);
         }
         if (group.Children.Count == 0) return null;

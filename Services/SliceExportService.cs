@@ -160,21 +160,61 @@ public static class SliceExportService
         {
             case ShapeElement s:
             {
-                var path = new System.Windows.Shapes.Path
+                var shapeGrid = new Grid();
+                shapeGrid.Children.Add(new System.Windows.Shapes.Path
                 {
                     Data = s.ShapeGeometry,
-                    Fill = s.FillBrush,
-                    Stroke = s.BorderBrush,
+                    Fill = s.BaseFillBrush,
+                    Stroke = s.BaseBorderBrush,
                     StrokeThickness = s.StrokeThickness,
                     StrokeLineJoin = PenLineJoin.Round,
                     Stretch = Stretch.None,
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
-                };
+                });
+                if (s.Glass.IsEnabled)
+                {
+                    shapeGrid.Children.Add(new System.Windows.Shapes.Path
+                    {
+                        Data = s.ShapeGeometry,
+                        Fill = s.Glass.BackdropBrush,
+                        Stretch = Stretch.None,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    });
+                    shapeGrid.Children.Add(new System.Windows.Shapes.Path
+                    {
+                        Data = s.ShapeGeometry,
+                        Fill = s.Glass.HighlightBrush,
+                        Stretch = Stretch.None,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    });
+                    shapeGrid.Children.Add(new System.Windows.Shapes.Path
+                    {
+                        Data = s.ShapeGeometry,
+                        Fill = s.Glass.NoiseBrush,
+                        Opacity = s.Glass.NoiseOpacity,
+                        Stretch = Stretch.None,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    });
+                    shapeGrid.Children.Add(new System.Windows.Shapes.Path
+                    {
+                        Data = s.ShapeGeometry,
+                        Fill = Brushes.Transparent,
+                        Stroke = s.Glass.RimBrush,
+                        StrokeThickness = 1.2,
+                        StrokeLineJoin = PenLineJoin.Round,
+                        Stretch = Stretch.None,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    });
+                }
                 border = new Border
                 {
                     Width = s.Width, Height = s.Height,
-                    Child = path,
+                    Child = shapeGrid,
                     Opacity = el.OpacityFactor,
                     OpacityMask = el.OpacityMaskBrush,
                     Effect = el.ShadowEffect,
@@ -240,17 +280,50 @@ public static class SliceExportService
                 break;
             }
             case ImageElement im:
+            {
+                var imageGrid = new Grid();
+                imageGrid.Children.Add(new Border
+                {
+                    CornerRadius = im.RenderCornerRadius,
+                    Background = im.BaseImageBrush,
+                });
+                if (im.Glass.IsEnabled)
+                {
+                    imageGrid.Children.Add(new Border
+                    {
+                        CornerRadius = im.RenderCornerRadius,
+                        Background = im.Glass.BackdropBrush,
+                    });
+                    imageGrid.Children.Add(new Border
+                    {
+                        CornerRadius = im.RenderCornerRadius,
+                        Background = im.Glass.HighlightBrush,
+                    });
+                    imageGrid.Children.Add(new Border
+                    {
+                        CornerRadius = im.RenderCornerRadius,
+                        Background = im.Glass.NoiseBrush,
+                        Opacity = im.Glass.NoiseOpacity,
+                    });
+                    imageGrid.Children.Add(new Border
+                    {
+                        CornerRadius = im.RenderCornerRadius,
+                        Background = Brushes.Transparent,
+                        BorderBrush = im.Glass.RimBrush,
+                        BorderThickness = new System.Windows.Thickness(1.2),
+                    });
+                }
                 border = new Border
                 {
                     Width = im.Width, Height = im.Height,
-                    CornerRadius = new CornerRadius(im.CornerRadius),
-                    Background = im.ImageBrush,
+                    Child = imageGrid,
                     Opacity = el.OpacityFactor,
                     OpacityMask = el.OpacityMaskBrush,
                     Effect = el.ShadowEffect,
                     RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
                 };
                 break;
+            }
             case TextElement text:
                 border = new Border
                 {

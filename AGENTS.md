@@ -279,11 +279,11 @@ Search for these names instead of scanning the file:
 
 | Area | Files |
 |---|---|
-| Models | `DesignElement` (base), `ShapeElement`, `ImageElement`, `TextElement`, `PaintLayerElement`, `SliceRegion`, `PhotoAdjustments`, `PhotoPreset` |
+| Models | `DesignElement` (base), `ShapeElement`, `ImageElement`, `TextElement`, `PaintLayerElement`, `SliceRegion`, `PhotoAdjustments`, `PhotoPreset`, `GlassEffect` |
 | Document | `ViewModels/DesignDocument.cs` — elements, selection, Z-order, artboard/pasteboard |
 | Shell | `MainWindow.xaml(.cs)`, `App.xaml(.cs)`, `NewCanvasDialog`, `SettingsDialog` |
 | Controls | `SelectionOverlay`, `ValueSlider`, `ColorPickerDialog`, `TextElementView` |
-| Raster services | `BrushEngine`, `BackgroundRemoverService`, `CanvasSampler`, `ContourService`, `ScreenColorSampler`, `PhotoAdjustmentService` |
+| Raster services | `BrushEngine`, `BackgroundRemoverService`, `CanvasSampler`, `ContourService`, `ScreenColorSampler`, `PhotoAdjustmentService`, `GlassEffectService` |
 | AI assistant | `Services/Ai/AiClient`, `AiChatService`, `AiCommandApplier`, `AiCanvasBrief`, `AiPromptBuilder`, `AiKeyProtector`, `AiProviderSettings` |
 | IO/settings | `YorteProjectService` (`.yimpact`), `AppSettings`, `ClipboardHelper` |
 | Render/slicing | `SliceExportService`, `SliceCutService`, `ResizeService` |

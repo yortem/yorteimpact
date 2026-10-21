@@ -78,23 +78,64 @@ public static class SliceCutService
         var sliceCanvas = slice.Rect;
         const double scale = 2.0; // crisp pixels regardless of view zoom
 
-        // Render the shape exactly as the canvas template draws it.
-        var path = new System.Windows.Shapes.Path
+        // Render the shape exactly as the canvas template draws it, including
+        // the glass layers, so a cut keeps the pixels that were on screen.
+        var visual = new Grid();
+        visual.Children.Add(new System.Windows.Shapes.Path
         {
             Data = el.ShapeGeometry,
-            Fill = el.FillBrush,
-            Stroke = el.BorderBrush,
+            Fill = el.BaseFillBrush,
+            Stroke = el.BaseBorderBrush,
             StrokeThickness = el.StrokeThickness,
             StrokeLineJoin = PenLineJoin.Round,
             Stretch = Stretch.None,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
-        };
+        });
+        if (el.Glass.IsEnabled)
+        {
+            visual.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = el.ShapeGeometry,
+                Fill = el.Glass.BackdropBrush,
+                Stretch = Stretch.None,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+            });
+            visual.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = el.ShapeGeometry,
+                Fill = el.Glass.HighlightBrush,
+                Stretch = Stretch.None,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+            });
+            visual.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = el.ShapeGeometry,
+                Fill = el.Glass.NoiseBrush,
+                Opacity = el.Glass.NoiseOpacity,
+                Stretch = Stretch.None,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+            });
+            visual.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = el.ShapeGeometry,
+                Fill = Brushes.Transparent,
+                Stroke = el.Glass.RimBrush,
+                StrokeThickness = 1.2,
+                StrokeLineJoin = PenLineJoin.Round,
+                Stretch = Stretch.None,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+            });
+        }
         var border = new Border
         {
             Width = el.Width,
             Height = el.Height,
-            Child = path,
+            Child = visual,
             RenderTransformOrigin = new Point(0.5, 0.5),
             RenderTransform = new ScaleTransform(el.FlipScaleX, el.FlipScaleY),
         };
@@ -117,6 +158,49 @@ public static class SliceCutService
         {
             wb = new WriteableBitmap(rtb);
             var local = Rect.Intersect(el.Bounds, sliceCanvas);
+            int x = (int)Math.Floor((local.X - el.X) * scale);
+            int y = (int)Math.Floor((local.Y - el.Y) * scale);
+            int w = (int)Math.Ceiling(local.Width * scale);
+            int h = (int)Math.Ceiling(local.Height * scale);
+            x = Math.Clamp(x, 0, wb.PixelWidth - 1);
+            y = Math.Clamp(y, 0, wb.PixelHeight - 1);
+            w = Math.Clamp(w, 1, wb.PixelWidth - x);
+            h = Math.Clamp(h, 1, wb.PixelHeight - y);
+            wb.WritePixels(new Int32Rect(x, y, w, h), new byte[h * w * 4], w * 4, 0);
+        }
+
+        var img = new ImageElement
+        {
+            X = el.X,
+            Y = el.Y,
+            CornerRadius = 0,
+        };
+        img.SetBitmap(wb);
+        img.Width = el.Width;
+        img.Height = el.Height;
+        TrimToOpaqueBounds(img);
+        return img;
+    }
+
+    /// <summary>
+    /// Flatten a glass image to pixels before punching the slice. Erasing the
+    /// hidden source raster would leave the glass overlay showing the old
+    /// backdrop instead of removing what is visible on screen.
+    /// </summary>
+    public static ImageElement CutGlassImageFlat(ImageElement el, SliceRegion slice)
+    {
+        const double scale = 2.0;
+        var rendered = SliceExportService.CropElementRegion(el, el.Bounds, scale);
+        WriteableBitmap wb;
+        if (slice.SelectionGeometry != null)
+        {
+            wb = new WriteableBitmap(
+                SliceExportService.ApplySliceMask(rendered, slice, el.Bounds, inverse: true));
+        }
+        else
+        {
+            wb = new WriteableBitmap(rendered);
+            var local = Rect.Intersect(el.Bounds, slice.Rect);
             int x = (int)Math.Floor((local.X - el.X) * scale);
             int y = (int)Math.Floor((local.Y - el.Y) * scale);
             int w = (int)Math.Ceiling(local.Width * scale);

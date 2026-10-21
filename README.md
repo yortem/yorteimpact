@@ -138,7 +138,8 @@ Shows the active tool's options:
 - **Path drawing** — shape type (rectangle, ellipse, triangle, polygon), a
   drawing ratio lock (keeps new shapes square/circular), fill color and
   solid/gradient mode, corner radius for rectangles, border and shadow for the
-  next shape (or the selected shape). **Individual** opens per-corner radii.
+  next shape (or the selected shape). **Individual** switches to per-corner
+  radii; the four labelled fields are in the Inspector.
   Shapes can be as small as 1 px, so thin
   lines and small squares are allowed.
 
@@ -149,20 +150,26 @@ bar in its own color, a clear 1px separator and a content block that reaches the
 panel edges without outer gaps. The panel is resizable by dragging its inner
 edge:
 
-- **Geometry** — X/Y and W/H on two compact rows, then Corner.
-- **Rotation** — rotation slider and the 90° left/right buttons.
+- **Geometry** — X/Y and W/H on two compact rows, then Corner. **Individual**
+  opens a spaced card with a labelled field for each corner.
+- **Rotation** (collapsible, starts collapsed) — rotation slider and the 90°
+  left/right buttons.
 - **Appearance** (shapes) — solid or gradient fill, colors, gradient type
-  and a 3×3 direction compass, border color and thickness.
+  and a 3×3 direction compass beside the gradient controls, border color and
+  thickness.
 - **Text** — font search and list, size, B/I/U/S and alignment.
 - **Fill** (text) — solid or gradient text fill.
 - **Transparency** — directional fade-to-transparent with preview tiles and
   inline sliders.
 - **Extra settings** (text) — letter spacing, line spacing, width limit and
   drop shadow.
-- **Shadow** (shapes and images) — thumbnail presets (Around, Bottom soft,
-  Card, Raised, Crisp, Float, Hard, Glow, None) plus inline offset, blur,
-  opacity and color controls.
-- **Workflow** — a short reminder of common actions.
+- **Shadow** (shapes and images, collapsible) — thumbnail presets (Around,
+  Bottom soft, Card, Raised, Crisp, Float, Hard, Glow, None) plus inline offset,
+  blur, opacity and color controls.
+- **Effects** (shapes and images) — a transparent glass overlay with
+  **Frosted**, **Liquid** and **Glossy** looks, plus blur, refraction, rim,
+  gloss and noise sliders. The glass samples the elements below the object; the
+  normal fill or photo returns when Glass is turned off.
 
 Value fields use a near-black borderless style; card titles are brighter than
 the muted field labels. The inspector has a thin dark scrollbar.
@@ -523,6 +530,33 @@ used it.
   opacity and color sliders.
 - Text: a simple shadow with offset, blur, opacity and color under Extra
   settings.
+
+### Glass effect
+
+Select a shape or image and enable **Glass** in the Inspector's **Effects**
+card. The object becomes a transparent panel over the elements below it: their
+pixels are sampled, blurred and shown through the panel, with a bright rim and
+an optional glossy highlight. The shape's own fill or the photo is hidden while
+Glass is on and comes back when it is turned off.
+
+- **Frosted** — a soft blurred backdrop with a light rim.
+- **Liquid** — a slightly zoomed backdrop that reads as refraction, with a
+  stronger rim and highlight.
+- **Glossy** — no blur; a transparent panel with a crisp CSS-like sheen.
+
+Use **Blur** for the backdrop softness, **Refraction** for the lens zoom
+(Liquid), **Rim light** for the edge, **Gloss** for the surface highlight and
+**Noise** for subtle grain. Glass settings, including the selected look and
+slider values, are saved in `.yimpact` and are part of undo/redo. The backdrop
+texture itself is rebuilt from the canvas and is not stored in the project.
+
+Glass is available for shapes and images. It samples only elements below the
+glass object; changing their position, size or appearance refreshes the panel.
+The preview also updates while an object is moved, resized or rotated, and while
+its Glass, corner or soft-edge sliders are scrubbed. Export and copy include the
+glass result. Cutting a glass object with a slice flattens the visible rendered
+pixels before trimming, so the gloss, highlight and sampled backdrop stay
+exactly where they were on screen.
 
 ## Slicing and clipboard
 
