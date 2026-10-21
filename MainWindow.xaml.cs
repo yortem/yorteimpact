@@ -144,10 +144,12 @@ public partial class MainWindow : Window
     private double _pasteOffsetX; // ScrollHost coordinate of Pasteboard model origin
     private double _pasteOffsetY;
     private List<SliceRegion> _slices = new(); // every drawn region (add more freely)
-    private SliceRegion? _activeSlice;                  // target for export / copy / punch
+    private SliceRegion? _activeSlice;                  // last clicked region; copy/cut use the union
     private Rect? _pendingSlice;                        // live drag preview
     private bool _sliceVisible = true;
-    private bool _sliceAddMode;                         // false = each drag replaces; true = accumulate (+)
+    // Accumulate slices instead of replacing; read straight from the toolbar toggle
+    // so the mode can never desync from the visible button state.
+    private bool SliceAddMode => TopAddSliceBtn.IsChecked == true;
     private SliceToolMode _sliceToolMode;
     private readonly List<Point> _sliceBezierDraft = new();
     private Point? _sliceBezierCursor;
@@ -1995,13 +1997,13 @@ public partial class MainWindow : Window
             {
                 _sliceVisible = true;
                 // Replace by default; only the "+Add slice" toggle accumulates.
-                if (!_sliceAddMode) _slices.Clear();
+                if (!SliceAddMode) _slices.Clear();
                 var region = new SliceRegion { Rect = rect, Name = $"slice{_slices.Count + 1}" };
                 _slices.Add(region);
                 _activeSlice = region;
-                StatusText.Text = _sliceAddMode
-                    ? $"Slice {rect.Width:F0}×{rect.Height:F0} added ({_slices.Count} total) — Export / Ctrl+C copy / Delete-cut / Ctrl+R crop."
-                    : $"Slice {rect.Width:F0}×{rect.Height:F0} — Export / Ctrl+C copy / Delete-cut / Ctrl+R crop. Turn on +Add slice to keep several.";
+                StatusText.Text = SliceAddMode
+                    ? $"Slice {rect.Width:F0}×{rect.Height:F0} added ({_slices.Count} total) — Ctrl+C / Ctrl+X / Delete use all slices together."
+                    : $"Slice {rect.Width:F0}×{rect.Height:F0} — Ctrl+C copy / Delete-cut / Ctrl+R crop. Turn on +Add slice to keep several.";
             }
             else
             {
@@ -2015,7 +2017,9 @@ public partial class MainWindow : Window
                 if (hit != null)
                 {
                     _activeSlice = hit;
-                    StatusText.Text = $"Active slice {hit.Rect.Width:F0}×{hit.Rect.Height:F0} @({hit.Rect.X:F0},{hit.Rect.Y:F0}).";
+                    StatusText.Text = _slices.Count > 1
+                        ? $"Slice selection active ({_slices.Count} regions) — copy and delete use all of them."
+                        : $"Active slice {hit.Rect.Width:F0}×{hit.Rect.Height:F0} @({hit.Rect.X:F0},{hit.Rect.Y:F0}).";
                 }
                 else
                 {
@@ -2539,19 +2543,28 @@ public partial class MainWindow : Window
     {
         var pending = NormalizedRect(_dragStartCanvas, pos);
         _pendingSlice = pending;
-        if (!_sliceVisible && (pending.Width >= 5 && pending.Height >= 5))
+        bool realDrag = pending.Width >= 5 && pending.Height >= 5;
+        // Replace mode: drop the previous region as soon as this becomes a real
+        // drag, so the old marker never sits under the live preview.
+        if (realDrag && !SliceAddMode && _slices.Count > 0)
+        {
+            _slices.Clear();
+            _activeSlice = null;
+        }
+        if (!_sliceVisible && realDrag)
             _sliceVisible = true;
         ShowDrawSizeTip(pending);
         RefreshSliceLayer();
     }
 
-    /// <summary>Rebuild all slice markers. Active region is cyan, the rest dim.</summary>
+    /// <summary>Rebuild all slice markers. Combined regions share the cyan highlight.</summary>
     private void RefreshSliceLayer()
     {
         SliceLayer.Children.Clear();
         if (!_sliceVisible) return;
+        bool combined = _slices.Count > 1 && _activeSlice != null;
         foreach (var region in _slices)
-            AddSliceVisual(region, ReferenceEquals(region, _activeSlice));
+            AddSliceVisual(region, combined || ReferenceEquals(region, _activeSlice));
         if (_drag == DragMode.Slice && _pendingSlice is Rect pr && pr.Width >= 1 && pr.Height >= 1)
             AddSliceVisual(new SliceRegion { Rect = pr }, true);
         if (_sliceBezierDraft.Count > 0)
@@ -2591,6 +2604,12 @@ public partial class MainWindow : Window
 
     private void AddBezierSlicePoint(Point point, int clickCount)
     {
+        if (_sliceBezierDraft.Count == 0 && !SliceAddMode && _slices.Count > 0)
+        {
+            // Starting a replacement slice: hide the old region while tracing.
+            _slices.Clear();
+            _activeSlice = null;
+        }
         if (_sliceBezierDraft.Count >= 3 && DistanceSquared(point, _sliceBezierDraft[0]) < 100)
         {
             FinishBezierSlice();
@@ -2619,13 +2638,13 @@ public partial class MainWindow : Window
         var geometry = CreateAnchoredPolygonGeometry(points);
         var bounds = geometry.Bounds;
         if (bounds.Width < 5 || bounds.Height < 5) return;
-        if (!_sliceAddMode) _slices.Clear();
+        if (!SliceAddMode) _slices.Clear();
         var region = new SliceRegion { Rect = bounds, Name = $"slice{_slices.Count + 1}", SelectionGeometry = geometry };
         _slices.Add(region);
         _activeSlice = region;
         _sliceBezierDraft.Clear();
         _sliceBezierCursor = null;
-        StatusText.Text = $"Bezier slice {bounds.Width:F0}×{bounds.Height:F0} — Ctrl+C copies the selected area.";
+        StatusText.Text = $"Bezier slice {bounds.Width:F0}×{bounds.Height:F0} — Ctrl+C copies the slice selection.";
         RefreshSliceLayer();
     }
 
@@ -2678,6 +2697,27 @@ public partial class MainWindow : Window
         RefreshSliceLayer();
     }
 
+    /// <summary>Every kept slice as one selection: copy, cut and Delete use the union.</summary>
+    private SliceRegion? BuildCombinedSlice()
+    {
+        var regions = _slices.Where(r => !r.IsEmpty).ToList();
+        if (regions.Count == 0) return null;
+        if (regions.Count == 1) return regions[0];
+
+        Rect bounds = regions[0].Rect;
+        Geometry? union = null;
+        foreach (var region in regions)
+        {
+            bounds.Union(region.Rect);
+            Geometry geometry = region.SelectionGeometry ?? new RectangleGeometry(region.Rect);
+            union = union == null
+                ? geometry
+                : Geometry.Combine(union, geometry, GeometryCombineMode.Union, null);
+        }
+
+        return new SliceRegion { Rect = bounds, SelectionGeometry = union, Name = "combined" };
+    }
+
     /// <summary>
     /// Arrow keys nudge the selection (1px, Shift = 10px). With nothing
     /// selected they move the active slice region instead.
@@ -2723,8 +2763,8 @@ public partial class MainWindow : Window
         _sliceVisible = !_sliceVisible;
         RefreshSliceLayer();
         StatusText.Text = _sliceVisible
-            ? "Slice markers shown — Delete / Ctrl+C act on the active slice again."
-            : "Slice markers hidden — Delete / Ctrl+C now ignore the slice (Space to show it again).";
+            ? "Slice markers shown - Delete / Ctrl+C act on the slice selection again."
+            : "Slice markers hidden - Delete / Ctrl+C now ignore the slice (Space to show it again).";
     }
 
     // ----- rectangle drawing -----
@@ -3885,11 +3925,12 @@ public partial class MainWindow : Window
             StatusText.Text = "Copy works on one object at a time; select a single object or use the right-click save.";
             return;
         }
-        var slice = _sliceVisible ? _activeSlice : null;
+        var slice = _sliceVisible && _activeSlice != null ? BuildCombinedSlice() : null;
         bool hasSlice = slice != null && !slice.IsEmpty;
 
         // A visible slice acts like a marquee: it defines WHAT gets copied.
-        // With a selection, that means the slice area OF the selected object.
+        // All kept slices count as one selection; with a selected object, that
+        // means the slice areas OF that object.
         if (hasSlice)
         {
             if (_doc.Selected is { } sel) CopySliceOfElement(sel, slice!);
@@ -4152,28 +4193,29 @@ public partial class MainWindow : Window
 
         // A hidden slice (Space) is just a leftover marker: ignore it so Delete
         // removes the whole object, not the area where a slice once was.
-        if (_sliceVisible && _activeSlice != null && !_activeSlice.IsEmpty && SliceCutService.IsAxisAligned(s))
+        var slice = _sliceVisible && _activeSlice != null ? BuildCombinedSlice() : null;
+        if (slice != null && !slice.IsEmpty && SliceCutService.IsAxisAligned(s))
         {
             var outer = s.Bounds;
-            var inter = Rect.Intersect(outer, _activeSlice.Rect);
+            var inter = Rect.Intersect(outer, slice.Rect);
             if (!inter.IsEmpty && inter.Width >= 1 && inter.Height >= 1)
             {
-                bool fullyCovered = _activeSlice.SelectionGeometry?.FillContains(new RectangleGeometry(outer)) == true ||
-                    (_activeSlice.SelectionGeometry == null && inter.X <= outer.X + 0.5 && inter.Y <= outer.Y + 0.5
+                bool fullyCovered = slice.SelectionGeometry?.FillContains(new RectangleGeometry(outer)) == true ||
+                    (slice.SelectionGeometry == null && inter.X <= outer.X + 0.5 && inter.Y <= outer.Y + 0.5
                     && inter.Right >= outer.Right - 0.5 && inter.Bottom >= outer.Bottom - 0.5);
                 if (fullyCovered)
                 {
                     _doc.RemoveSelected();
-                    StatusText.Text = "Selection was fully inside the slice — removed.";
+                    StatusText.Text = "Selection was fully inside the slice selection — removed.";
                     return;
                 }
 
                 if (s is ImageElement im)
                 {
-                    var r = SliceCutService.EraseImageRegion(im, _activeSlice);
+                    var r = SliceCutService.EraseImageRegion(im, slice);
                     if (r == PunchResult.Partial)
                     {
-                        StatusText.Text = "Cut the slice area out of the image — Delete again removes the whole image.";
+                        StatusText.Text = "Cut the slice selection out of the image — Delete again removes the whole image.";
                         SelectionAdorner.InvalidateVisual();
                         return;
                     }
@@ -4182,13 +4224,13 @@ public partial class MainWindow : Window
                 {
                     // One flat object out: bake fill/border to pixels, cut the hole.
                     int z = sh.ZIndex;
-                    var flat = SliceCutService.CutShapeFlat(sh, _activeSlice);
+                    var flat = SliceCutService.CutShapeFlat(sh, slice);
                     _doc.RemoveElement(sh);
                     flat.ZIndex = z;
                     _doc.Elements.Add(flat);
                     _doc.NormalizeZ();
                     _doc.Select(flat);
-                    StatusText.Text = "Cut the slice out — shape flattened to a single flat image (fill/border baked in).";
+                    StatusText.Text = "Cut the slice selection out — shape flattened to a single flat image (fill/border baked in).";
                     SelectionAdorner.InvalidateVisual();
                     return;
                 }
@@ -4210,23 +4252,24 @@ public partial class MainWindow : Window
             StatusText.Text = "Cut works on one object at a time; use Delete to remove the selected group.";
             return;
         }
-        bool sliceActive = _sliceVisible && _activeSlice != null && !_activeSlice.IsEmpty;
+        var slice = _sliceVisible && _activeSlice != null ? BuildCombinedSlice() : null;
+        bool sliceActive = slice != null && !slice.IsEmpty;
 
         if (_doc.Selected is { } sel)
         {
             if (sliceActive)
             {
                 var inter = SliceCutService.IsAxisAligned(sel)
-                    ? Rect.Intersect(sel.Bounds, _activeSlice!.Rect)
+                    ? Rect.Intersect(sel.Bounds, slice!.Rect)
                     : Rect.Empty;
                 if (inter.IsEmpty || inter.Width < 1 || inter.Height < 1)
                 {
-                    StatusText.Text = "The slice doesn't overlap the selected object — nothing to cut.";
+                    StatusText.Text = "The slice selection doesn't overlap the selected object — nothing to cut.";
                     return;
                 }
                 CopySelectionOrSlice();          // slice area -> clipboard (in-app + OS)
                 DeleteSelectedRespectingSlice(); // punch the area out of the object
-                StatusText.Text = "Cut the slice area — Ctrl+V pastes it back, or paste into other apps.";
+                StatusText.Text = "Cut the slice selection — Ctrl+V pastes it back, or paste into other apps.";
                 return;
             }
 
@@ -5230,42 +5273,75 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AttrShapeFill1_Click(object sender, RoutedEventArgs e)
+    private void AttrShapeFill1_Click(object sender, RoutedEventArgs e) => PickShapeFill(editEnd: false);
+
+    private void AttrShapeFill2_Click(object sender, RoutedEventArgs e) => PickShapeFill(editEnd: true);
+
+    private void PickShapeFill(bool editEnd)
     {
         var targets = SelectedShapes;
         var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
+        var dlg = new ColorPickerDialog(
+            editEnd ? src.FillColor2 : src.FillColor1,
+            CanvasColorsWithPrimary(),
+            allowGradient: true,
+            gradientStart: src.FillColor1,
+            gradientEnd: src.IsGradient ? src.FillColor2 : null,
+            gradientAngle: src.GradientAngle,
+            editGradientEnd: editEnd) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (targets.Count > 0)
         {
             PushUndo();
-            foreach (var shape in targets) shape.FillColor1 = dlg.SelectedColor;
+            foreach (var shape in targets) ApplyShapeFillFromDialog(shape, dlg, editEnd);
             RefreshInspector();
         }
         else
         {
-            _settings.Shape.Fill1 = ToHex(dlg.SelectedColor);
+            ApplyShapeFillDefaults(dlg, editEnd);
         }
         RefreshShapeToolbar();
     }
 
-    private void AttrShapeFill2_Click(object sender, RoutedEventArgs e)
+    private static void ApplyShapeFillFromDialog(ShapeElement shape, ColorPickerDialog dlg, bool editEnd)
     {
-        var targets = SelectedShapes;
-        var src = SelectedShape ?? targets.FirstOrDefault() ?? ShapeDefaultsPreview();
-        var dlg = new ColorPickerDialog(src.FillColor2, CanvasColorsWithPrimary()) { Owner = this };
-        if (dlg.ShowDialog() != true) return;
-        if (targets.Count > 0)
+        if (dlg.UseGradient)
         {
-            PushUndo();
-            foreach (var shape in targets) shape.FillColor2 = dlg.SelectedColor;
-            RefreshInspector();
+            shape.FillColor1 = dlg.GradientStart;
+            shape.FillColor2 = dlg.GradientEnd;
+            shape.GradientAngle = dlg.GradientAngle;
+            if (dlg.PresetChosen) shape.GradientType = GradientType.Linear;
+            shape.IsGradient = true;
+        }
+        else if (editEnd)
+        {
+            shape.FillColor2 = dlg.SelectedColor;
         }
         else
         {
-            _settings.Shape.Fill2 = ToHex(dlg.SelectedColor);
+            shape.FillColor1 = dlg.SelectedColor;
         }
-        RefreshShapeToolbar();
+    }
+
+    private void ApplyShapeFillDefaults(ColorPickerDialog dlg, bool editEnd)
+    {
+        var d = _settings.Shape;
+        if (dlg.UseGradient)
+        {
+            d.Fill1 = ToHex(dlg.GradientStart);
+            d.Fill2 = ToHex(dlg.GradientEnd);
+            d.GradientAngle = dlg.GradientAngle;
+            if (dlg.PresetChosen) d.GradientType = GradientType.Linear.ToString();
+            d.IsGradient = true;
+        }
+        else if (editEnd)
+        {
+            d.Fill2 = ToHex(dlg.SelectedColor);
+        }
+        else
+        {
+            d.Fill1 = ToHex(dlg.SelectedColor);
+        }
     }
 
     private void AttrShapeFillMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -5613,21 +5689,54 @@ public partial class MainWindow : Window
     {
         var targets = SelectedTexts;
         var target = SelectedText ?? targets.FirstOrDefault();
-        var dlg = new ColorPickerDialog(target?.TextColor1 ?? _textDefaults.TextColor1,
-            CanvasColorsWithPrimary()) { Owner = this };
+        var dlg = new ColorPickerDialog(
+            target?.TextColor1 ?? _textDefaults.TextColor1,
+            CanvasColorsWithPrimary(),
+            allowGradient: true,
+            gradientStart: target?.TextColor1 ?? _textDefaults.TextColor1,
+            gradientEnd: target is not null
+                ? target.IsGradient ? target.TextColor2 : null
+                : _textDefaults.IsGradient ? _textDefaults.TextColor2 : null,
+            gradientAngle: target?.TextGradientAngle ?? _textDefaults.TextGradientAngle) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (targets.Count > 0)
         {
             PushUndo();
-            foreach (var text in targets) text.TextColor1 = dlg.SelectedColor;
+            foreach (var text in targets) ApplyTextFillFromDialog(text, dlg, editEnd: false);
             UpdateTextEditorStyle();
             RefreshInspector();
+        }
+        else if (dlg.UseGradient)
+        {
+            _textDefaults.TextColor1 = dlg.GradientStart;
+            _textDefaults.TextColor2 = dlg.GradientEnd;
+            _textDefaults.TextGradientAngle = dlg.GradientAngle;
+            _textDefaults.IsGradient = true;
         }
         else
         {
             _textDefaults.TextColor1 = dlg.SelectedColor;
         }
         RefreshTextToolbar();
+    }
+
+    private static void ApplyTextFillFromDialog(TextElement text, ColorPickerDialog dlg, bool editEnd)
+    {
+        if (dlg.UseGradient)
+        {
+            text.TextColor1 = dlg.GradientStart;
+            text.TextColor2 = dlg.GradientEnd;
+            text.TextGradientAngle = dlg.GradientAngle;
+            text.IsGradient = true;
+        }
+        else if (editEnd)
+        {
+            text.TextColor2 = dlg.SelectedColor;
+        }
+        else
+        {
+            text.TextColor1 = dlg.SelectedColor;
+        }
     }
 
     private void AttrTextFont_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -5888,12 +5997,15 @@ public partial class MainWindow : Window
     /// <summary>Ctrl+R: shrink the canvas to the selected object's bounds (its position is untouched).</summary>
     private void FitCanvasToSelection()
     {
-        if (_tool == ActiveTool.Slice && _sliceVisible && _activeSlice is { IsEmpty: false } slice)
+        var slice = _tool == ActiveTool.Slice && _sliceVisible && _activeSlice != null
+            ? BuildCombinedSlice()
+            : null;
+        if (slice is { IsEmpty: false })
         {
             PushUndo();
             _doc.SetArtboardRect(slice.Rect);
             ZoomToFit();
-            StatusText.Text = $"Project cropped to the active slice ({slice.Rect.Width:F0}×{slice.Rect.Height:F0} px). Content outside the slice stays in the document.";
+            StatusText.Text = $"Project cropped to the combined slice selection ({slice.Rect.Width:F0}×{slice.Rect.Height:F0} px). Content outside the selection stays in the document.";
             return;
         }
 
@@ -5970,10 +6082,9 @@ public partial class MainWindow : Window
     /// <summary>Top-bar "+" toggle: accumulate slices instead of replacing.</summary>
     private void SliceAdd_Click(object sender, RoutedEventArgs e)
     {
-        _sliceAddMode = TopAddSliceBtn.IsChecked == true;
-        StatusText.Text = _sliceAddMode
-            ? "Slice: add mode — each drag adds another region."
-            : "Slice: replace mode — each drag replaces the previous region.";
+        StatusText.Text = SliceAddMode
+            ? "Slice: add mode — new regions join the selection; copy, cut and delete use all of them."
+            : "Slice: replace mode — each drag replaces the previous selection.";
     }
 
     private void SliceMode_Click(object sender, RoutedEventArgs e)
@@ -6026,7 +6137,7 @@ public partial class MainWindow : Window
                 ActiveTool.Pick => "Pick tool: click to select; Ctrl/Shift+click adds to the selection; drag to move. Slice selections stay visible here; Space hides or shows them.",
                 ActiveTool.Slice => _sliceToolMode == SliceToolMode.Bezier
                     ? "Bezier slice: click exact corner points; close at the first point, double-click or press Enter. Esc cancels."
-                    : _sliceAddMode
+                    : SliceAddMode
                         ? "Slice tool (add): drag to add a rectangular region."
                         : "Slice tool: drag to create a rectangular region; turn on +Add slice to accumulate.",
                 ActiveTool.Rectangle => "Path tool: choose a shape and drag; Polygon uses click-to-connect. V returns to Pick.",
@@ -8414,20 +8525,40 @@ public partial class MainWindow : Window
                      ?? selectedLines.FirstOrDefault()?.StrokeColor
                      ?? _primaryColor,
             };
-            var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary()) { Owner = this };
+            var gradientShape = selectedShapes.FirstOrDefault(s => s.IsGradient) ?? selectedShapes.FirstOrDefault();
+            var gradientText = selectedTexts.FirstOrDefault(t => t.IsGradient) ?? selectedTexts.FirstOrDefault();
+            Color? gradientEnd = gradientShape is { IsGradient: true } ? gradientShape.FillColor2
+                : gradientText is { IsGradient: true } ? gradientText.TextColor2
+                : null;
+            var dialog = new ColorPickerDialog(current, CanvasColorsWithPrimary(),
+                allowGradient: selectedShapes.Count + selectedTexts.Count > 0,
+                gradientStart: gradientShape?.FillColor1 ?? gradientText?.TextColor1,
+                gradientEnd: gradientEnd,
+                gradientAngle: gradientShape?.GradientAngle ?? gradientText?.TextGradientAngle ?? 135) { Owner = this };
             if (dialog.ShowDialog() != true) return;
 
             PushUndo();
-            foreach (var shape in selectedShapes) shape.FillColor1 = dialog.SelectedColor;
-            foreach (var text in selectedTexts) text.TextColor1 = dialog.SelectedColor;
-            foreach (var line in selectedLines) line.StrokeColor = dialog.SelectedColor;
+            if (dialog.UseGradient)
+            {
+                foreach (var shape in selectedShapes) ApplyShapeFillFromDialog(shape, dialog, editEnd: false);
+                foreach (var text in selectedTexts) ApplyTextFillFromDialog(text, dialog, editEnd: false);
+                foreach (var line in selectedLines) line.StrokeColor = dialog.GradientStart;
+            }
+            else
+            {
+                foreach (var shape in selectedShapes) shape.FillColor1 = dialog.SelectedColor;
+                foreach (var text in selectedTexts) text.TextColor1 = dialog.SelectedColor;
+                foreach (var line in selectedLines) line.StrokeColor = dialog.SelectedColor;
+            }
             OnSelectionChanged();
             RefreshInspector();
             RefreshShapeToolbar();
             RefreshTextToolbar();
             RefreshLineToolbar();
             UpdateTextEditorStyle();
-            StatusText.Text = $"Color set for {colorable} selected objects to {ToHex(dialog.SelectedColor)}.";
+            StatusText.Text = dialog.UseGradient
+                ? $"Gradient set for {colorable} selected objects."
+                : $"Color set for {colorable} selected objects to {ToHex(dialog.SelectedColor)}.";
             return;
         }
 
@@ -8439,13 +8570,19 @@ public partial class MainWindow : Window
                 StatusText.Text = "Ctrl+F changes the selected object's color or the active tool's color.";
                 return;
             }
-            var dlgGroup = new ColorPickerDialog(shapes[0].FillColor1, CanvasColorsWithPrimary()) { Owner = this };
+            var dlgGroup = new ColorPickerDialog(shapes[0].FillColor1, CanvasColorsWithPrimary(),
+                allowGradient: true,
+                gradientStart: shapes[0].FillColor1,
+                gradientEnd: shapes[0].IsGradient ? shapes[0].FillColor2 : null,
+                gradientAngle: shapes[0].GradientAngle) { Owner = this };
             if (dlgGroup.ShowDialog() != true) return;
             PushUndo();
-            foreach (var gShape in shapes) gShape.FillColor1 = dlgGroup.SelectedColor;
+            foreach (var gShape in shapes) ApplyShapeFillFromDialog(gShape, dlgGroup, editEnd: false);
             RefreshInspector();
             RefreshShapeToolbar();
-            StatusText.Text = $"Group fill set to {ToHex(dlgGroup.SelectedColor)}.";
+            StatusText.Text = dlgGroup.UseGradient
+                ? $"Gradient set for {shapes.Count} shapes in the group."
+                : $"Group fill set to {ToHex(dlgGroup.SelectedColor)}.";
             return;
         }
 
@@ -8457,13 +8594,19 @@ public partial class MainWindow : Window
 
         if (_doc.Selected is TextElement te)
         {
-            var dlg = new ColorPickerDialog(te.TextColor1, CanvasColorsWithPrimary()) { Owner = this };
+            var dlg = new ColorPickerDialog(te.TextColor1, CanvasColorsWithPrimary(),
+                allowGradient: true,
+                gradientStart: te.TextColor1,
+                gradientEnd: te.IsGradient ? te.TextColor2 : null,
+                gradientAngle: te.TextGradientAngle) { Owner = this };
             if (dlg.ShowDialog() != true) return;
             PushUndo();
-            te.TextColor1 = dlg.SelectedColor;
+            ApplyTextFillFromDialog(te, dlg, editEnd: false);
             RefreshInspector();
             UpdateTextEditorStyle();
-            StatusText.Text = $"Text color set to {ToHex(dlg.SelectedColor)}.";
+            StatusText.Text = dlg.UseGradient
+                ? "Text gradient set."
+                : $"Text color set to {ToHex(dlg.SelectedColor)}.";
             return;
         }
 
@@ -8511,12 +8654,18 @@ public partial class MainWindow : Window
             }
             return;
         }
-        var dlgShape = new ColorPickerDialog(sh.FillColor1, CanvasColorsWithPrimary()) { Owner = this };
+        var dlgShape = new ColorPickerDialog(sh.FillColor1, CanvasColorsWithPrimary(),
+            allowGradient: true,
+            gradientStart: sh.FillColor1,
+            gradientEnd: sh.IsGradient ? sh.FillColor2 : null,
+            gradientAngle: sh.GradientAngle) { Owner = this };
         if (dlgShape.ShowDialog() != true) return;
         PushUndo();
-        sh.FillColor1 = dlgShape.SelectedColor;
+        ApplyShapeFillFromDialog(sh, dlgShape, editEnd: false);
         OnSelectionChanged(); // refresh swatches + hex boxes
-        StatusText.Text = $"Shape background set to {ToHex(dlgShape.SelectedColor)}.";
+        StatusText.Text = dlgShape.UseGradient
+            ? "Shape gradient set."
+            : $"Shape background set to {ToHex(dlgShape.SelectedColor)}.";
     }
 
     private void ColorPreview_Click(object sender, RoutedEventArgs e)
@@ -8526,6 +8675,19 @@ public partial class MainWindow : Window
         Color original;
         Action<Color> apply;
         Action refresh;
+        Action<Color, Color, double>? applyGradient = null;
+        Action? makeLinear = null;
+        bool allowGradient = false;
+        Color? gradientStart = null, gradientEnd = null;
+        double gradientAngle = 135;
+        bool editGradientEnd = false;
+        bool originalIsGradient = false;
+        Color originalOther = Colors.Transparent;
+        double originalAngle = 0;
+        TextElement? textTarget = null;
+        ShapeElement? shapeTarget = null;
+        GradientType shapeGradientType = GradientType.Linear;
+
         DesignElement? shadowTarget = null;
         ShadowStyle originalShadowStyle = ShadowStyle.None;
 
@@ -8542,48 +8704,125 @@ public partial class MainWindow : Window
                 break;
             case "TextFill1":
             case "TextFill2":
+            {
                 if (_doc.Selected is not TextElement te) return;
-                original = tag == "TextFill1" ? te.TextColor1 : te.TextColor2;
+                textTarget = te;
+                bool editEnd = tag == "TextFill2";
+                original = editEnd ? te.TextColor2 : te.TextColor1;
+                originalIsGradient = te.IsGradient;
+                originalOther = editEnd ? te.TextColor1 : te.TextColor2;
+                originalAngle = te.TextGradientAngle;
                 apply = c =>
                 {
-                    if (tag == "TextFill1") te.TextColor1 = c;
-                    else te.TextColor2 = c;
+                    if (editEnd) te.TextColor2 = c;
+                    else te.TextColor1 = c;
                     UpdateTextEditorStyle();
                 };
+                applyGradient = (a, b, angle) =>
+                {
+                    te.TextColor1 = a;
+                    te.TextColor2 = b;
+                    te.TextGradientAngle = angle;
+                    te.IsGradient = true;
+                    UpdateTextEditorStyle();
+                };
+                allowGradient = true;
+                gradientStart = te.TextColor1;
+                gradientEnd = te.IsGradient ? te.TextColor2 : null;
+                gradientAngle = te.TextGradientAngle;
+                editGradientEnd = editEnd;
                 refresh = () => { RefreshInspector(); UpdateTextEditorStyle(); };
+                break;
+            }
+            case "Stroke":
+                if (SelectedShape is not { } strokeShape) return;
+                original = strokeShape.StrokeColor;
+                apply = c => strokeShape.StrokeColor = c;
+                refresh = OnSelectionChanged;
                 break;
             case "Fill1":
             case "Fill2":
-            case "Stroke":
+            {
                 if (SelectedShape is not { } sh) return;
-                original = tag switch
-                {
-                    "Fill1" => sh.FillColor1,
-                    "Fill2" => sh.FillColor2,
-                    _ => sh.StrokeColor,
-                };
+                shapeTarget = sh;
+                shapeGradientType = sh.GradientType;
+                bool editEnd = tag == "Fill2";
+                original = editEnd ? sh.FillColor2 : sh.FillColor1;
+                originalIsGradient = sh.IsGradient;
+                originalOther = editEnd ? sh.FillColor1 : sh.FillColor2;
+                originalAngle = sh.GradientAngle;
                 apply = c =>
                 {
-                    if (tag == "Fill1") sh.FillColor1 = c;
-                    else if (tag == "Fill2") sh.FillColor2 = c;
-                    else sh.StrokeColor = c;
+                    if (editEnd) sh.FillColor2 = c;
+                    else sh.FillColor1 = c;
                 };
+                applyGradient = (a, b, angle) =>
+                {
+                    sh.FillColor1 = a;
+                    sh.FillColor2 = b;
+                    sh.GradientAngle = angle;
+                    sh.IsGradient = true;
+                };
+                makeLinear = () => sh.GradientType = GradientType.Linear;
+                allowGradient = true;
+                gradientStart = sh.FillColor1;
+                gradientEnd = sh.IsGradient ? sh.FillColor2 : null;
+                gradientAngle = sh.GradientAngle;
+                editGradientEnd = editEnd;
                 refresh = OnSelectionChanged;
                 break;
+            }
             default:
                 return;
         }
 
         PushUndo(); // one undo step for the whole picker session
-        var dlg = new ColorPickerDialog(original, CanvasColorsWithPrimary()) { Owner = this };
+        var dlg = new ColorPickerDialog(original, CanvasColorsWithPrimary(),
+            allowGradient: allowGradient,
+            gradientStart: gradientStart,
+            gradientEnd: gradientEnd,
+            gradientAngle: gradientAngle,
+            editGradientEnd: editGradientEnd) { Owner = this };
         dlg.PreviewColorChanged += c => apply(c); // live on the canvas while the dialog is open
+        if (applyGradient != null)
+        {
+            dlg.PreviewGradientChanged += (a, b, angle) =>
+            {
+                applyGradient(a, b, angle);
+                if (dlg.PresetChosen) makeLinear?.Invoke();
+            };
+        }
+
         if (dlg.ShowDialog() == true)
         {
-            apply(dlg.SelectedColor);
+            if (dlg.UseGradient && applyGradient != null)
+            {
+                applyGradient(dlg.GradientStart, dlg.GradientEnd, dlg.GradientAngle);
+                if (dlg.PresetChosen) makeLinear?.Invoke();
+            }
+            else
+            {
+                apply(dlg.SelectedColor);
+            }
         }
         else
         {
             apply(original); // cancel / close: restore the pre-dialog color
+            if (textTarget != null)
+            {
+                textTarget.TextColor1 = editGradientEnd ? originalOther : original;
+                textTarget.TextColor2 = editGradientEnd ? original : originalOther;
+                textTarget.TextGradientAngle = originalAngle;
+                textTarget.IsGradient = originalIsGradient;
+            }
+            if (shapeTarget != null)
+            {
+                shapeTarget.FillColor1 = editGradientEnd ? originalOther : original;
+                shapeTarget.FillColor2 = editGradientEnd ? original : originalOther;
+                shapeTarget.GradientAngle = originalAngle;
+                shapeTarget.GradientType = shapeGradientType;
+                shapeTarget.IsGradient = originalIsGradient;
+            }
             if (shadowTarget != null) shadowTarget.ShadowStyle = originalShadowStyle;
         }
         refresh();

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -13,8 +14,8 @@ namespace YorteImpact.Controls;
 
 /// <summary>
 /// Self-contained color picker: a saturation/value field,
-/// a hue strip, hex + RGB entry, a swatch palette and a live preview. It
-/// blends with the app chrome and returns a
+/// a hue strip, hex + RGB entry, a swatch palette, gradient presets and a live
+/// preview. It blends with the app chrome and returns a
 /// <see cref="Color"/> directly from <see cref="SelectedColor"/>.
 /// </summary>
 public partial class ColorPickerDialog : Window
@@ -25,21 +26,70 @@ public partial class ColorPickerDialog : Window
     private bool _suppress;
     private bool _screenPicking;
 
+    private bool _gradientBuilt;
+    private bool _useGradient;
+    private Color _gradientStart = Colors.White;
+    private Color _gradientEnd = Colors.Black;
+    private double _gradientAngle = 135;
+    private bool _editGradientEnd;
+    private bool _applyingPreset;
+    private Border? _selectedGradientTile;
+    private HueFilter _hueFilter = HueFilter.All;
+    private readonly List<(Border Tile, GradientPreset Preset)> _gradientTiles = new();
+
+    private enum HueFilter { All, Red, Orange, Yellow, Green, Cyan, Blue, Purple, Pink, Neutral }
+
+    private static readonly (HueFilter Hue, string Label)[] HueOptions =
+    {
+        (HueFilter.All, "All"),
+        (HueFilter.Red, "Red"),
+        (HueFilter.Orange, "Orange"),
+        (HueFilter.Yellow, "Yellow"),
+        (HueFilter.Green, "Green"),
+        (HueFilter.Cyan, "Cyan"),
+        (HueFilter.Blue, "Blue"),
+        (HueFilter.Purple, "Purple"),
+        (HueFilter.Pink, "Pink"),
+        (HueFilter.Neutral, "Neutral"),
+    };
+
     public Color SelectedColor { get; private set; } = Colors.Black;
+
+    /// <summary>True when OK should apply a gradient instead of a single color.</summary>
+    public bool UseGradient => _useGradient;
+    /// <summary>True when the gradient came from a preset (so it should be linear).</summary>
+    public bool PresetChosen { get; private set; }
+    public Color GradientStart => _gradientStart;
+    public Color GradientEnd => _gradientEnd;
+    public double GradientAngle => _gradientAngle;
 
     /// <summary>Fires for every live color change so the caller can preview it
     /// on the canvas; OK keeps the last preview, Cancel reverts.</summary>
     public event Action<Color>? PreviewColorChanged;
 
-    public ColorPickerDialog(Color initial, IEnumerable<Color>? canvasColors = null)
+    /// <summary>Fires when a preset or the angle changes while a gradient is active.</summary>
+    public event Action<Color, Color, double>? PreviewGradientChanged;
+
+    public ColorPickerDialog(Color initial, IEnumerable<Color>? canvasColors = null,
+        bool allowGradient = false,
+        Color? gradientStart = null,
+        Color? gradientEnd = null,
+        double gradientAngle = 135,
+        bool editGradientEnd = false)
     {
         InitializeComponent();
         SourceInitialized += (_, _) => DarkTitleBar.Apply(this);
+        _editGradientEnd = editGradientEnd;
+        _gradientStart = gradientStart ?? initial;
+        _gradientEnd = gradientEnd ?? initial;
+        _gradientAngle = gradientAngle;
+        _useGradient = allowGradient && gradientEnd.HasValue;
         BuildHueBar();
         BuildPalette();
         BuildPalettes();
         BuildCanvasColors(canvasColors);
         FromColor(initial);
+        RefreshGradientUI();
         Loaded += (_, _) => Refresh();
     }
 
@@ -88,6 +138,224 @@ public partial class ColorPickerDialog : Window
             Cursor = Cursors.Hand,
             ToolTip = $"#{c.R:X2}{c.G:X2}{c.B:X2}",
         };
+    }
+
+    // ---------------- gradient presets ----------------
+
+    private void PickerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PickerTabs == null || GradientTab == null || GradientWrap == null) return;
+        if (!ReferenceEquals(PickerTabs.SelectedItem, GradientTab) || _gradientBuilt) return;
+        _gradientBuilt = true;
+        BuildGradientPresets();
+        RefreshGradientUI();
+    }
+
+    private static readonly Brush GradientTileBorder = MakeFrozenBrush(Color.FromRgb(0x3A, 0x3A, 0x44));
+    private static readonly Brush GradientTileHover = MakeFrozenBrush(Color.FromRgb(0x5B, 0x5B, 0x68));
+    private static readonly Brush GradientTileActive = MakeFrozenBrush(Color.FromRgb(0x4C, 0x8D, 0xFF));
+
+    private static SolidColorBrush MakeFrozenBrush(Color c)
+    {
+        var brush = new SolidColorBrush(c);
+        brush.Freeze();
+        return brush;
+    }
+
+    private void BuildGradientPresets()
+    {
+        BuildHueFilters();
+        GradientWrap.Children.Clear();
+        _gradientTiles.Clear();
+        foreach (var preset in GradientPresetLibrary.All)
+        {
+            var fill = new Border
+            {
+                Background = BuildGradientBrush(preset.Start, preset.End, 0),
+                CornerRadius = new CornerRadius(5),
+            };
+            var tile = new Border
+            {
+                Width = 100,
+                Height = 46,
+                Margin = new Thickness(2),
+                CornerRadius = new CornerRadius(7),
+                BorderBrush = GradientTileBorder,
+                BorderThickness = new Thickness(2),
+                ClipToBounds = true,
+                Child = fill,
+                Cursor = Cursors.Hand,
+            };
+            AutomationProperties.SetName(tile, preset.Name);
+            tile.MouseLeftButtonDown += (_, _) => ApplyGradientPreset(preset, tile);
+            tile.MouseEnter += (_, _) =>
+            {
+                if (!ReferenceEquals(tile, _selectedGradientTile)) tile.BorderBrush = GradientTileHover;
+            };
+            tile.MouseLeave += (_, _) =>
+            {
+                if (!ReferenceEquals(tile, _selectedGradientTile)) tile.BorderBrush = GradientTileBorder;
+            };
+            _gradientTiles.Add((tile, preset));
+            GradientWrap.Children.Add(tile);
+        }
+        ApplyGradientFilter();
+    }
+
+    private void BuildHueFilters()
+    {
+        GradientHueBar.Children.Clear();
+        foreach (var (hue, label) in HueOptions)
+        {
+            var chip = new ToggleButton
+            {
+                Tag = hue,
+                IsChecked = hue == _hueFilter,
+                Style = (Style)FindResource("GradientHueSwatch"),
+                Background = HueSwatchBrush(hue),
+                ToolTip = label,
+            };
+            AutomationProperties.SetName(chip, label);
+            chip.Click += (_, _) => SetHueFilter(hue);
+            GradientHueBar.Children.Add(chip);
+        }
+    }
+
+    private static Brush HueSwatchBrush(HueFilter hue)
+    {
+        if (hue == HueFilter.All)
+        {
+            var all = new GradientStopCollection
+            {
+                new(Color.FromRgb(0xE7, 0x4C, 0x3C), 0),
+                new(Color.FromRgb(0xF3, 0x9C, 0x12), 0.15),
+                new(Color.FromRgb(0xF1, 0xC4, 0x0F), 0.30),
+                new(Color.FromRgb(0x2E, 0xCC, 0x71), 0.45),
+                new(Color.FromRgb(0x1A, 0xBC, 0x9C), 0.60),
+                new(Color.FromRgb(0x34, 0x98, 0xDB), 0.75),
+                new(Color.FromRgb(0x9B, 0x59, 0xB6), 0.88),
+                new(Color.FromRgb(0xE8, 0x43, 0x93), 1),
+            };
+            return new LinearGradientBrush(all, new Point(0, 0), new Point(1, 1));
+        }
+
+        if (hue == HueFilter.Neutral)
+            return new LinearGradientBrush(Colors.White, Color.FromRgb(0x55, 0x5D, 0x66), 45);
+
+        Color color = hue switch
+        {
+            HueFilter.Red => Color.FromRgb(0xE7, 0x4C, 0x3C),
+            HueFilter.Orange => Color.FromRgb(0xF3, 0x9C, 0x12),
+            HueFilter.Yellow => Color.FromRgb(0xF1, 0xC4, 0x0F),
+            HueFilter.Green => Color.FromRgb(0x2E, 0xCC, 0x71),
+            HueFilter.Cyan => Color.FromRgb(0x1A, 0xBC, 0x9C),
+            HueFilter.Blue => Color.FromRgb(0x34, 0x98, 0xDB),
+            HueFilter.Purple => Color.FromRgb(0x9B, 0x59, 0xB6),
+            _ => Color.FromRgb(0xE8, 0x43, 0x93),
+        };
+        var dark = Color.FromRgb((byte)(color.R * 0.55), (byte)(color.G * 0.55), (byte)(color.B * 0.55));
+        return new LinearGradientBrush(dark, color, 45);
+    }
+
+    private void SetHueFilter(HueFilter hue)
+    {
+        _hueFilter = hue;
+        foreach (var chip in GradientHueBar.Children.OfType<ToggleButton>())
+            chip.IsChecked = chip.Tag is HueFilter chipHue && chipHue == hue;
+        ApplyGradientFilter();
+    }
+
+    private void ApplyGradientFilter()
+    {
+        foreach (var (tile, preset) in _gradientTiles)
+        {
+            bool show = _hueFilter == HueFilter.All
+                || HueOf(preset.Start) == _hueFilter
+                || HueOf(preset.End) == _hueFilter;
+            tile.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private static HueFilter HueOf(Color c)
+    {
+        RgbToHsv(c, out double h, out double s, out double v);
+        if (s < 0.12 || v < 0.12) return HueFilter.Neutral;
+        if (h < 15 || h >= 345) return HueFilter.Red;
+        if (h < 45) return HueFilter.Orange;
+        if (h < 70) return HueFilter.Yellow;
+        if (h < 165) return HueFilter.Green;
+        if (h < 195) return HueFilter.Cyan;
+        if (h < 255) return HueFilter.Blue;
+        if (h < 290) return HueFilter.Purple;
+        return HueFilter.Pink;
+    }
+
+    private void ApplyGradientPreset(GradientPreset preset, Border tile)
+    {
+        _gradientStart = preset.Start;
+        _gradientEnd = preset.End;
+        _useGradient = true;
+        PresetChosen = true;
+        _selectedGradientTile = tile;
+        _applyingPreset = true;
+        FromColor(_editGradientEnd ? preset.End : preset.Start);
+        Refresh();
+        _applyingPreset = false;
+        PreviewGradientChanged?.Invoke(_gradientStart, _gradientEnd, _gradientAngle);
+    }
+
+    private void RefreshGradientUI()
+    {
+        if (GradientPreview == null) return;
+        GradientPreview.Background = _useGradient
+            ? BuildGradientBrush(_gradientStart, _gradientEnd, _gradientAngle)
+            : new SolidColorBrush(Current);
+        GradientNameText.Text = _useGradient ? "Gradient" : "Solid color";
+        UpdateGradientDirections();
+        foreach (var (tile, _) in _gradientTiles)
+        {
+            bool selected = ReferenceEquals(tile, _selectedGradientTile);
+            tile.BorderBrush = selected ? GradientTileActive : GradientTileBorder;
+        }
+    }
+
+    private void GradientDirection_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: string tag } ||
+            !double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out double angle))
+            return;
+
+        _gradientAngle = angle;
+        UpdateGradientDirections();
+        if (!_useGradient) return;
+        GradientPreview.Background = BuildGradientBrush(_gradientStart, _gradientEnd, _gradientAngle);
+        PreviewGradientChanged?.Invoke(_gradientStart, _gradientEnd, _gradientAngle);
+    }
+
+    private void UpdateGradientDirections()
+    {
+        foreach (var button in GradientDirections.Children.OfType<ToggleButton>())
+        {
+            if (button.Tag is string tag &&
+                double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out double direction))
+            {
+                button.IsChecked = Math.Abs(NormalizeAngle(_gradientAngle - direction)) < 0.5;
+            }
+        }
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        angle %= 360;
+        return angle < 0 ? angle + 360 : angle;
+    }
+
+    private static LinearGradientBrush BuildGradientBrush(Color start, Color end, double angle)
+    {
+        double rad = (angle - 90) * Math.PI / 180.0;
+        double dx = Math.Cos(rad) / 2, dy = Math.Sin(rad) / 2;
+        return new LinearGradientBrush(start, end,
+            new Point(0.5 - dx, 0.5 - dy), new Point(0.5 + dx, 0.5 + dy));
     }
 
     private void BuildCanvasColors(IEnumerable<Color>? colors)
@@ -451,6 +719,13 @@ public partial class ColorPickerDialog : Window
         SelectedColor = c;
         PreviewColorChanged?.Invoke(c);
         PreviewSwatch.Background = new SolidColorBrush(c);
+
+        if (_useGradient && !_applyingPreset)
+        {
+            if (_editGradientEnd) _gradientEnd = c;
+            else _gradientStart = c;
+        }
+        RefreshGradientUI();
 
         _suppress = true;
         HexBox.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";

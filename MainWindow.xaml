@@ -1472,14 +1472,14 @@
                 </StackPanel>
               </Border>
               <ToggleButton x:Name="TopAddSliceBtn" Style="{StaticResource TopToggle}"
-                            Click="SliceAdd_Click" ToolTip="Add slices instead of replacing">
+                            Click="SliceAdd_Click" ToolTip="Add regions to the slice selection instead of replacing it">
                 <StackPanel Orientation="Horizontal">
                   <Path Data="M12,5 V19 M5,12 H19" Stroke="{StaticResource IconBrush}" StrokeThickness="2"
                         Width="14" Height="14" Stretch="Uniform"/>
                   <TextBlock Text="Add slice" Margin="7,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
               </ToggleButton>
-              <TextBlock Text="New slices replace the previous one by default — turn this on to keep several."
+              <TextBlock Text="New slices replace the previous one by default - turn this on to add regions and use them together."
                          Style="{StaticResource AttrCaption}" Margin="10,0,0,0"/>
             </StackPanel>
 

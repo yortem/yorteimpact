@@ -123,7 +123,8 @@ Shows the active tool's options:
   flip. The controls appear only when an object is selected; corner radius is
   available for rectangles and images. Turn on **Individual** to set the
   top-left, top-right, bottom-right and bottom-left radii separately.
-- **Slice** — rectangular or Bezier selection, plus the *Add slice* toggle.
+- **Slice** - rectangular or Bezier selection, plus the *Add slice* toggle;
+  all kept regions act as one combined selection.
 - **Background remover** — tolerance, contiguous mode and *Auto*.
 - **Paintbrush** — style, target, color, size, opacity, soft edge, smoothing
   and presets.
@@ -532,16 +533,20 @@ icon and click to place exact corner points connected by straight segments.
 Close it by clicking the first point,
 double-clicking, or pressing Enter; Esc cancels and Backspace removes the last
 anchor. Bezier selections copy with transparent pixels outside the path.
-Each new slice replaces the prior slice; enable **Add slice** to accumulate
-several regions. While dragging, a live `W × H` readout follows the pointer,
-like shape drawing. Click a visible region to activate it; a plain click on the
-background clears the active slice and prepares the next cut.
+Each new slice replaces the prior slice: the old marker disappears as soon as you
+start a real drag (or place the first Bezier point), so it never sits under the
+new selection. Enable **Add slice** to keep the previous regions and add more.
+All kept regions form one slice selection: copy, cut, `Delete` and `Ctrl+R` use
+the union of every added region, not just the last one. While dragging, a live
+`W × H` readout follows the pointer, like shape drawing. Click a visible region
+to reactivate the selection; a plain click on the background deactivates it and
+prepares the next cut.
 
-- `Ctrl+C` copies the active slice area.
-- `Ctrl+X` cuts it out.
-- `Ctrl+R` crops the project to the active slice bounds (content outside the
+- `Ctrl+C` copies the combined slice area.
+- `Ctrl+X` cuts the combined slice area out.
+- `Ctrl+R` crops the project to the combined slice bounds (content outside the
   crop stays in the document).
-- `Delete` cuts the slice area out of the selected object.
+- `Delete` cuts the combined slice area out of the selected object.
 - `Space` shows/hides the slice markers (hidden markers are inactive). A click
   while they are hidden resets the active slice instead of restoring them.
   Slices remain visible when switching to Pick or another tool; Esc clears them.
@@ -570,6 +575,12 @@ background clears the active slice and prepares the next cut.
 - The in-app **Color Picker** has a saturation/value field, hue strip, hex and
   RGB entry, a compact row of strong modern colors and colors already used on
   the canvas.
+- The **Gradient** tab has 300+ two-stop presets, a fixed live preview, eight
+  direction buttons and hue filters shown as colored squares (Red, Orange,
+  Yellow, Green, Cyan, Blue, Purple, Pink, Neutral). Only the preset grid
+  scrolls. Choosing a preset on a shape fill or text color applies both stops
+  and turns the gradient on; the start and end colors can still be fine-tuned
+  from the Picker tab. Other color slots use the first stop as a solid color.
 - The **Main color** swatch and the screen eyedropper sit under the tools in
   the left rail; the swatch opens the picker. The main color is listed first
   under **Used on this canvas**. That list contains colors you applied to
@@ -676,11 +687,11 @@ also shows a compact preview of the copied render in that confirmation.
 | `Ctrl+Shift+drag` | Duplicate and snap the copy to the visible grid |
 | `Shift+drag` | Snap while moving |
 | `Ctrl+F` | Change the selected object's color or the active tool's primary color; otherwise change the canvas color |
-| `Ctrl+R` | Fit canvas to selection or active slice |
+| `Ctrl+R` | Fit canvas to selection or combined slice |
 | `Ctrl+0` | Zoom to 100% |
 | `+` / `-` | Zoom step |
 | `Ctrl+wheel` | Center the cursor point while zooming |
-| `Delete` / `Backspace` | Delete (cuts the slice when one is active) |
+| `Delete` / `Backspace` | Delete (cuts the combined slice selection when active) |
 | `Space` | Show/hide slice markers |
 | Arrow keys | Nudge 1px (Shift = 10px) |
 | `Esc` | Cancel a line or polygon draft / finish text / clear slice / return to Pick |

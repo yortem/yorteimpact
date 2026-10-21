@@ -8,8 +8,8 @@ public sealed class SliceRegion
 {
     public Rect Rect { get; set; }
     public string Name { get; set; } = "slice";
-    public PathGeometry? SelectionGeometry { get; set; }
-    public bool IsBezier => SelectionGeometry != null;
+    public Geometry? SelectionGeometry { get; set; }
+    public bool IsBezier => SelectionGeometry is PathGeometry;
 
     public bool IsEmpty => Rect.Width < 2 || Rect.Height < 2;
 }

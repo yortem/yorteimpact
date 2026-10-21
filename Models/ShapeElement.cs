@@ -144,7 +144,7 @@ public class ShapeElement : DesignElement
         set { if (Set(ref _gradientType, value)) RebuildBrushes(); }
     }
 
-    /// <summary>Gradient direction in degrees (Linear only; 0 = left-to-right).</summary>
+    /// <summary>Gradient direction in degrees (Linear only; 0 = up, 90 = right).</summary>
     public double GradientAngle
     {
         get => _gradientAngle;
